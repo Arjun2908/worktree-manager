@@ -1,4 +1,4 @@
-import { GitBranch, LayoutDashboard, FolderGit2, Archive } from 'lucide-react'
+import { GitBranch, LayoutDashboard, FolderGit2, Archive, Settings } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useAppStore } from '../../stores/app-store'
 import { cn, getRepoColor } from '../../lib/utils'
@@ -140,9 +140,21 @@ export function Sidebar({ repos, totalWorktrees, totalDiskUsage, isLoading }: Si
         </div>
       </div>
 
-      {/* Bottom stats */}
-      <div className="px-5 py-4 border-t border-border">
-        <div className="flex items-center justify-between text-xs text-text-tertiary">
+      {/* Bottom: settings + stats */}
+      <div className="px-3 py-3 border-t border-border space-y-2">
+        <button
+          onClick={() => setCurrentView('settings')}
+          className={cn(
+            'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150',
+            currentView === 'settings'
+              ? 'bg-primary/15 text-text-primary font-medium'
+              : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+          )}
+        >
+          <Settings className="w-4 h-4" />
+          Settings
+        </button>
+        <div className="flex items-center justify-between text-xs text-text-tertiary px-3">
           <span>{nonMainTotal} worktrees</span>
           <span>{prettyBytes(totalDiskUsage)}</span>
         </div>

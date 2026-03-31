@@ -8,12 +8,13 @@ import { Header } from './components/layout/Header'
 import { Dashboard } from './components/dashboard/Dashboard'
 import { WorktreeList } from './components/worktrees/WorktreeList'
 import { StashBrowser } from './components/stashes/StashBrowser'
+import { SettingsPanel } from './components/settings/SettingsPanel'
 import type { Worktree } from './types'
 
 export default function App() {
   const { currentView, selectedRepo, hideMainWorktrees, sourceFilter, statusFilter, searchQuery, sortBy, sortDirection, theme } = useAppStore()
   const { data: settings } = useSettings()
-  const scanRoots = settings?.scanRoots || ['/Users/arjungupta/source']
+  const scanRoots = settings?.scanRoots || []
   const { data: scanResult, isLoading, refetch, scanProgress } = useWorktrees(scanRoots)
   const selection = useSelection()
 
@@ -151,6 +152,16 @@ export default function App() {
                     scanResult={scanResult || null}
                     isLoading={isLoading}
                   />
+                </motion.div>
+              ) : currentView === 'settings' ? (
+                <motion.div
+                  key="settings"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2, ease: 'easeOut' }}
+                >
+                  <SettingsPanel />
                 </motion.div>
               ) : currentView === 'stashes' ? (
                 <motion.div

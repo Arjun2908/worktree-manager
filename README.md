@@ -66,7 +66,7 @@ This will code-sign the app with your Developer ID certificate, submit it to App
 
 ### Configuration
 
-On first launch, the app scans `~/source` by default. To change scan directories, click the settings gear (or edit `~/.config/worktree-manager/settings.json` directly).
+On first launch, the app scans `~/source` by default. To change scan directories, click **Settings** in the sidebar and add/remove directories. Settings are stored at `~/.config/worktree-manager/settings.json`.
 
 ## Features
 

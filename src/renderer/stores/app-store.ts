@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { WorktreeSource, WorktreeStatus } from '../types'
 
 interface AppState {
-  currentView: 'dashboard' | 'worktrees' | 'stashes'
+  currentView: 'dashboard' | 'worktrees' | 'stashes' | 'settings'
   selectedRepo: string | null
   stashRepo: string | null
   sourceFilter: WorktreeSource | 'all'
@@ -16,7 +16,7 @@ interface AppState {
   lastScanTime: number | null
   showScanComplete: boolean
 
-  setCurrentView: (view: 'dashboard' | 'worktrees' | 'stashes') => void
+  setCurrentView: (view: 'dashboard' | 'worktrees' | 'stashes' | 'settings') => void
   setSelectedRepo: (repo: string | null) => void
   setStashRepo: (repo: string | null) => void
   setSourceFilter: (source: WorktreeSource | 'all') => void
