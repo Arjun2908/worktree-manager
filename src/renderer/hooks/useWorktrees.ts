@@ -15,6 +15,7 @@ export function useWorktrees(scanRoots: string[]) {
   const query = useQuery<ScanResult>({
     queryKey: ['worktrees', scanRoots],
     queryFn: () => window.api.scanWorktrees(scanRoots),
+    enabled: scanRoots.length > 0,
     staleTime: 30_000,
     refetchOnWindowFocus: true
   })
