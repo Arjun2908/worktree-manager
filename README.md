@@ -31,6 +31,39 @@ npm run build
 npm run start
 ```
 
+### Package as `.dmg` (unsigned)
+
+Creates a distributable `.dmg` without code signing — recipients will need to right-click and "Open" on first launch to bypass Gatekeeper.
+
+```bash
+npm run dist:unsigned
+```
+
+The `.dmg` and `.zip` will be in the `release/` directory.
+
+### Package with Code Signing + Notarization
+
+For a clean install experience with no Gatekeeper warnings, you need an [Apple Developer account](https://developer.apple.com/) ($99/year).
+
+**One-time setup:**
+
+1. Create a "Developer ID Application" certificate in the Apple Developer portal and install it in your Keychain
+2. Set environment variables (add to your shell profile or a `.env` file):
+
+```bash
+export APPLE_TEAM_ID="YOUR_10_CHAR_TEAM_ID"     # From developer.apple.com → Membership
+export APPLE_ID="your@email.com"                  # Your Apple ID
+export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"  # Generate at appleid.apple.com → Sign-In and Security → App-Specific Passwords
+```
+
+3. Build:
+
+```bash
+npm run dist
+```
+
+This will code-sign the app with your Developer ID certificate, submit it to Apple's notarization service, staple the notarization ticket, and produce a `.dmg` ready for distribution.
+
 ### Configuration
 
 On first launch, the app scans `~/source` by default. To change scan directories, click the settings gear (or edit `~/.config/worktree-manager/settings.json` directly).

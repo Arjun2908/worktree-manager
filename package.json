@@ -7,11 +7,61 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-vite build && electron-builder --mac",
+    "dist:unsigned": "electron-vite build && electron-builder --mac --config.mac.identity=null"
   },
   "keywords": [],
-  "author": "",
+  "author": "Arjun Gupta",
   "license": "ISC",
+  "build": {
+    "appId": "com.arjungupta.worktree-manager",
+    "productName": "Worktree Manager",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "!out/**/*.map"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["universal"]
+        },
+        {
+          "target": "zip",
+          "arch": ["universal"]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    }
+  },
   "dependencies": {
     "@tanstack/react-query": "^5.95.2",
     "clsx": "^2.1.1",
@@ -25,12 +75,14 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@electron/notarize": "^2.5.0",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.27",
     "electron": "^35.7.5",
+    "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
     "postcss": "^8.5.8",
     "tailwindcss": "^3.4.19",
