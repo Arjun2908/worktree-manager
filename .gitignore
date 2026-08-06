@@ -2,8 +2,13 @@ node_modules/
 out/
 dist/
 release/
+.cache/
+build/icon.iconset/
+design/qa/
+design-qa.md
 .DS_Store
 *.log
 *.env
+*.tsbuildinfo
 
 apple-developer-certificate.cer

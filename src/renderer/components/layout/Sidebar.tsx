@@ -1,9 +1,9 @@
-import { GitBranch, LayoutDashboard, FolderGit2, Archive, Settings } from 'lucide-react'
-import { motion } from 'framer-motion'
-import { useAppStore } from '../../stores/app-store'
-import { cn, getRepoColor } from '../../lib/utils'
+import { Archive, FolderGit2, LayoutDashboard, Settings } from 'lucide-react'
 import prettyBytes from 'pretty-bytes'
+import { useAppStore } from '../../stores/app-store'
+import { cn } from '../../lib/utils'
 import type { RepoSummary } from '../../types'
+import { UpdateStatus } from '../updates/UpdateStatus'
 
 interface SidebarProps {
   repos: RepoSummary[]
@@ -12,153 +12,165 @@ interface SidebarProps {
   isLoading: boolean
 }
 
-export function Sidebar({ repos, totalWorktrees, totalDiskUsage, isLoading }: SidebarProps) {
+const navigationRow =
+  'flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors'
+
+export function Sidebar({ repos, totalDiskUsage, isLoading }: SidebarProps) {
   const { currentView, selectedRepo, setCurrentView, setSelectedRepo, setStashRepo } = useAppStore()
 
   const nonMainTotal = repos.reduce(
-    (sum, r) => sum + r.worktrees.filter((w) => !w.isMainWorktree).length,
+    (sum, repo) => sum + repo.worktrees.filter((worktree) => !worktree.isMainWorktree).length,
     0
   )
-  const totalStashes = repos.reduce((sum, r) => sum + r.stashCount, 0)
+  const totalStashes = repos.reduce((sum, repo) => sum + repo.stashCount, 0)
+  const diskUsageKnown = repos.every((repo) => repo.worktrees.every(
+    (worktree) => worktree.isMainWorktree || worktree.diskSize !== null
+  ))
 
   return (
-    <div className="w-[260px] flex-shrink-0 glass border-r border-border flex flex-col h-full">
-      {/* App title */}
-      <div className="px-5 pt-2 pb-4">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-            <GitBranch className="w-4 h-4 text-white" />
-          </div>
-          <div>
-            <h1 className="text-sm font-semibold text-text-primary">Worktree Manager</h1>
-            <p className="text-[10px] text-text-tertiary">Git workspace organizer</p>
-          </div>
-        </div>
-      </div>
+    <aside className="flex h-full w-[240px] flex-shrink-0 flex-col border-r border-border-subtle bg-background/75">
+      <nav aria-label="Primary" className="space-y-0.5 px-3 pt-2">
+        <button
+          type="button"
+          onClick={() => {
+            setCurrentView('dashboard')
+            setSelectedRepo(null)
+          }}
+          aria-current={currentView === 'dashboard' ? 'page' : undefined}
+          className={cn(
+            navigationRow,
+            currentView === 'dashboard'
+              ? 'bg-surface-active text-text-primary font-medium'
+              : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+          )}
+        >
+          <LayoutDashboard className="h-3.5 w-3.5" aria-hidden="true" />
+          Overview
+        </button>
 
-      {/* Main nav */}
-      <nav className="px-3 space-y-1">
         <button
-          onClick={() => { setCurrentView('dashboard'); setSelectedRepo(null) }}
+          type="button"
+          onClick={() => {
+            setCurrentView('worktrees')
+            setSelectedRepo(null)
+          }}
+          aria-current={currentView === 'worktrees' && !selectedRepo ? 'page' : undefined}
           className={cn(
-            'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150',
-            currentView === 'dashboard' && !selectedRepo
-              ? 'bg-primary/15 text-text-primary font-medium'
-              : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
-          )}
-        >
-          <LayoutDashboard className="w-4 h-4" />
-          Dashboard
-        </button>
-        <button
-          onClick={() => { setCurrentView('worktrees'); setSelectedRepo(null) }}
-          className={cn(
-            'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150',
+            navigationRow,
             currentView === 'worktrees' && !selectedRepo
-              ? 'bg-primary/15 text-text-primary font-medium'
-              : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+              ? 'bg-surface-active text-text-primary font-medium'
+              : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
           )}
         >
-          <FolderGit2 className="w-4 h-4" />
+          <FolderGit2 className="h-3.5 w-3.5" aria-hidden="true" />
           All Worktrees
+          <span className="ml-auto font-mono text-[11px] text-text-tertiary">{nonMainTotal}</span>
         </button>
+
         {totalStashes > 0 && (
           <button
+            type="button"
             onClick={() => setStashRepo(null)}
+            aria-current={currentView === 'stashes' ? 'page' : undefined}
             className={cn(
-              'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150',
+              navigationRow,
               currentView === 'stashes'
-                ? 'bg-primary/15 text-text-primary font-medium'
-                : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+                ? 'bg-surface-active text-text-primary font-medium'
+                : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
             )}
           >
-            <Archive className="w-4 h-4" />
+            <Archive className="h-3.5 w-3.5" aria-hidden="true" />
             Stashes
-            <span className="ml-auto text-xs text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded font-mono">
-              {totalStashes}
-            </span>
+            <span className="ml-auto font-mono text-[11px] text-text-tertiary">{totalStashes}</span>
           </button>
         )}
       </nav>
 
-      {/* Repos section */}
-      <div className="mt-6 flex-1 overflow-hidden flex flex-col">
-        <div className="px-5 mb-2">
-          <span className="text-[11px] uppercase tracking-wider text-text-tertiary font-medium">
-            Repositories
-          </span>
-        </div>
-        <div className="flex-1 overflow-auto px-3 space-y-0.5">
+      <section aria-labelledby="repositories-heading" className="mt-5 flex min-h-0 flex-1 flex-col">
+        <h2
+          id="repositories-heading"
+          className="mb-1 px-5 text-[11px] font-medium text-text-tertiary"
+        >
+          Repositories
+        </h2>
+
+        <div className="flex-1 space-y-0.5 overflow-auto px-3">
           {isLoading && repos.length === 0 ? (
-            <div className="px-3 py-8 text-center">
-              <div className="inline-block w-5 h-5 border-2 border-border border-t-primary rounded-full animate-spin" />
-              <p className="text-xs text-text-tertiary mt-3">Scanning repos...</p>
+            <div className="flex items-center gap-2 px-2 py-3 text-xs text-text-tertiary" role="status">
+              <span className="h-3 w-3 animate-spin rounded-full border border-border-strong border-t-primary" />
+              Scanning repositories…
             </div>
+          ) : repos.length === 0 ? (
+            <p className="px-2 py-3 text-xs text-text-tertiary">No repositories found.</p>
           ) : (
-            repos.map((repo, i) => {
-              const nonMainCount = repo.worktrees.filter(w => !w.isMainWorktree).length
+            repos.map((repo) => {
+              const nonMainCount = repo.worktrees.filter((worktree) => !worktree.isMainWorktree).length
               if (nonMainCount === 0) return null
+
+              const isSelected = currentView === 'worktrees' && selectedRepo === repo.path
+
               return (
-                <motion.button
+                <div
                   key={repo.path}
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.03, duration: 0.2 }}
-                  onClick={() => setSelectedRepo(repo.name)}
                   className={cn(
-                    'w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-sm transition-all duration-150',
-                    selectedRepo === repo.name
-                      ? 'bg-primary/15 text-text-primary'
-                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+                    'group flex min-h-8 items-center rounded-md transition-colors',
+                    isSelected
+                      ? 'bg-surface-active text-text-primary'
+                      : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
                   )}
                 >
-                  <span className="flex items-center gap-2 truncate">
-                    <span
-                      className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: getRepoColor(i) }}
-                    />
-                    <span className="truncate">{repo.name}</span>
-                  </span>
-                  <span className="flex items-center gap-1.5 ml-2 flex-shrink-0">
-                    {repo.stashCount > 0 && (
-                      <span
-                        className="text-[10px] text-orange-400 cursor-pointer hover:text-orange-300"
-                        title={`${repo.stashCount} stash${repo.stashCount > 1 ? 'es' : ''}`}
-                        onClick={(e) => { e.stopPropagation(); setStashRepo(repo.path) }}
-                      >
-                        {repo.stashCount}s
-                      </span>
-                    )}
-                    <span className="text-xs text-text-tertiary bg-surface px-1.5 py-0.5 rounded">
-                      {nonMainCount}
-                    </span>
-                  </span>
-                </motion.button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRepo(repo.path)}
+                    aria-current={isSelected ? 'page' : undefined}
+                    className="flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-md px-2 text-left"
+                  >
+                    <FolderGit2 className="h-3.5 w-3.5 flex-shrink-0 text-text-tertiary" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate">{repo.name}</span>
+                    <span className="font-mono text-[11px] text-text-tertiary">{nonMainCount}</span>
+                  </button>
+
+                  {repo.stashCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setStashRepo(repo.path)}
+                      aria-label={`View ${repo.stashCount} stash${repo.stashCount === 1 ? '' : 'es'} in ${repo.name}`}
+                      className="mr-1 flex min-h-7 items-center gap-1 rounded px-1.5 text-[11px] text-text-tertiary hover:bg-surface-active hover:text-text-primary"
+                    >
+                      <Archive className="h-3 w-3" aria-hidden="true" />
+                      <span className="font-mono">{repo.stashCount}</span>
+                    </button>
+                  )}
+                </div>
               )
             })
           )}
         </div>
-      </div>
+      </section>
 
-      {/* Bottom: settings + stats */}
-      <div className="px-3 py-3 border-t border-border space-y-2">
+      <div className="border-t border-border-subtle px-3 py-3">
+        <UpdateStatus />
+
         <button
+          type="button"
           onClick={() => setCurrentView('settings')}
+          aria-current={currentView === 'settings' ? 'page' : undefined}
           className={cn(
-            'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150',
+            navigationRow,
             currentView === 'settings'
-              ? 'bg-primary/15 text-text-primary font-medium'
-              : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+              ? 'bg-surface-active text-text-primary font-medium'
+              : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
           )}
         >
-          <Settings className="w-4 h-4" />
+          <Settings className="h-3.5 w-3.5" aria-hidden="true" />
           Settings
         </button>
-        <div className="flex items-center justify-between text-xs text-text-tertiary px-3">
-          <span>{nonMainTotal} worktrees</span>
-          <span>{prettyBytes(totalDiskUsage)}</span>
+
+        <div className="mt-2 flex items-center justify-between px-2 text-[11px] text-text-tertiary">
+          <span>{nonMainTotal} linked</span>
+          <span className="font-mono">{diskUsageKnown ? prettyBytes(totalDiskUsage) : '—'}</span>
         </div>
       </div>
-    </div>
+    </aside>
   )
 }

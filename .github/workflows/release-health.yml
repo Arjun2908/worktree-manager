@@ -1,0 +1,106 @@
+name: Release Health
+
+on:
+  schedule:
+    - cron: "17 13 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag to verify; leave blank for Latest
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  attestations: read
+  artifact-metadata: read
+
+concurrency:
+  group: published-release-health
+  cancel-in-progress: false
+
+jobs:
+  verify-published-release:
+    name: Download and reverify published macOS release
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - name: Check out verification scripts
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Use Node.js 22
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22.23.2
+          cache: npm
+      - name: Install locked verifier dependencies
+        run: npm ci --ignore-scripts
+      - name: Resolve published release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          gh release verify --help >/dev/null
+          tag="$REQUESTED_TAG"
+          if [[ -z "$tag" ]]; then
+            tag="$(gh release view --json tagName --jq .tagName)"
+            manifest_version="$(node -p "JSON.parse(require('fs').readFileSync('.release-please-manifest.json', 'utf8'))['.']")"
+            if [[ "$tag" != "v$manifest_version" ]]; then
+              echo "Latest release $tag does not match manifest version v$manifest_version" >&2
+              exit 1
+            fi
+          fi
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag is not semantic: $tag" >&2
+            exit 1
+          fi
+          test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = "false"
+          test "$(gh release view "$tag" --json isPrerelease --jq .isPrerelease)" = "false"
+          test "$(gh release view "$tag" --json isImmutable --jq .isImmutable)" = "true"
+          gh release verify "$tag" -R "$GITHUB_REPOSITORY"
+          git fetch origin main --no-tags
+          git fetch origin "refs/tags/$tag:refs/tags/$tag" --force
+          source_sha="$(git rev-list -n 1 "$tag")"
+          test -n "$source_sha"
+          git merge-base --is-ancestor "$source_sha" origin/main
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+      - name: Download immutable public assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          gh release download "$RELEASE_TAG" --dir published-release
+          expected_assets=(
+            "Worktree-Manager-$RELEASE_VERSION-universal.dmg"
+            "Worktree-Manager-$RELEASE_VERSION-universal.zip"
+            "Worktree-Manager-$RELEASE_VERSION-universal.zip.blockmap"
+            "latest-mac.yml"
+            "SHA256SUMS"
+          )
+          diff -u \
+            <(printf '%s\n' "${expected_assets[@]}" | sort) \
+            <(find published-release -maxdepth 1 -type f -exec basename {} \; | sort)
+      - name: Verify checksums and GitHub provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        run: |
+          gh attestation verify --help | grep -q -- '--source-digest'
+          gh attestation verify --help | grep -q -- '--signer-workflow'
+          test -f published-release/SHA256SUMS
+          (cd published-release && shasum -a 256 -c SHA256SUMS)
+          while IFS= read -r asset; do
+            gh attestation verify "$asset" \
+              -R "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-digest "$RELEASE_SOURCE_SHA"
+          done < <(find published-release -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.zip.blockmap' -o -name 'latest-mac.yml' -o -name 'SHA256SUMS' \) | sort)
+      - name: Reverify Gatekeeper, notarization, updater metadata, and launch
+        env:
+          EXPECTED_APP_VERSION: ${{ steps.release.outputs.version }}
+        run: bash scripts/verify-macos-artifacts.sh --release published-release

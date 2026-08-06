@@ -1,4 +1,9 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
+import {
+  countSelectedIds,
+  reconcileSelectedIds,
+  replaceSelectedIds
+} from '../lib/selection'
 
 export function useSelection() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -17,20 +22,31 @@ export function useSelection() {
     })
   }, [])
 
-  const selectAll = useCallback((ids: string[]) => {
-    setSelected(new Set(ids))
+  const selectAll = useCallback((ids: Iterable<string>) => {
+    setSelected((current) => replaceSelectedIds(current, ids))
   }, [])
 
   const deselectAll = useCallback(() => {
-    setSelected(new Set())
+    setSelected((current) => current.size === 0 ? current : new Set())
   }, [])
 
-  return {
+  const reconcile = useCallback((validIds: Iterable<string>) => {
+    setSelected((current) => reconcileSelectedIds(current, validIds))
+  }, [])
+
+  const countSelected = useCallback(
+    (ids: Iterable<string>) => countSelectedIds(selected, ids),
+    [selected]
+  )
+
+  return useMemo(() => ({
     selected,
     isSelected,
     toggle,
     selectAll,
     deselectAll,
+    reconcile,
+    countSelected,
     count: selected.size
-  }
+  }), [selected, isSelected, toggle, selectAll, deselectAll, reconcile, countSelected])
 }

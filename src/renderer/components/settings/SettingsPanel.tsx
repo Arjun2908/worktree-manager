@@ -1,188 +1,215 @@
-import { useState, useEffect } from 'react'
-import { Settings, FolderPlus, X, Save, RotateCcw } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { useEffect, useMemo, useState } from 'react'
+import { FolderPlus, Save, Trash2 } from 'lucide-react'
 import { useSettings, useSaveSettings } from '../../hooks/useWorktrees'
+import { useAppStore } from '../../stores/app-store'
 import type { AppSettings } from '../../types'
 
 export function SettingsPanel() {
-  const { data: settings } = useSettings()
+  const { data: settings, isLoading } = useSettings()
   const saveSettings = useSaveSettings()
+  const { setTheme, setHideMainWorktrees } = useAppStore()
+  const [draft, setDraft] = useState<AppSettings | null>(null)
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'refreshing' | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const [scanRoots, setScanRoots] = useState<string[]>([])
-  const [staleThresholdDays, setStaleThresholdDays] = useState(30)
-  const [dirty, setDirty] = useState(false)
-  const [saved, setSaved] = useState(false)
-
-  // Sync from loaded settings
   useEffect(() => {
-    if (settings) {
-      setScanRoots(settings.scanRoots)
-      setStaleThresholdDays(settings.staleThresholdDays)
-    }
+    if (settings) setDraft(settings)
   }, [settings])
 
+  const dirty = useMemo(
+    () => Boolean(settings && draft && JSON.stringify(settings) !== JSON.stringify(draft)),
+    [settings, draft]
+  )
+
+  if (isLoading || !draft) {
+    return (
+      <div className="initial-loading" role="status">
+        <span className="native-spinner" aria-hidden="true" />
+        <p>Loading settings…</p>
+      </div>
+    )
+  }
+
+  const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
+    setDraft((current) => current ? { ...current, [key]: value } : current)
+    setSaveStatus(null)
+    setError(null)
+  }
+
   const handleAddDirectory = async () => {
-    const dir = await window.api.selectDirectory()
-    if (dir && !scanRoots.includes(dir)) {
-      setScanRoots([...scanRoots, dir])
-      setDirty(true)
+    const directory = await window.api.selectDirectory()
+    if (directory && !draft.scanRoots.includes(directory)) {
+      update('scanRoots', [...draft.scanRoots, directory])
     }
   }
 
-  const handleRemoveDirectory = (index: number) => {
-    setScanRoots(scanRoots.filter((_, i) => i !== index))
-    setDirty(true)
-  }
-
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!settings) return
-    const updated: AppSettings = {
-      ...settings,
-      scanRoots,
-      staleThresholdDays
+    const normalized: AppSettings = {
+      ...draft,
+      staleThresholdDays: Math.max(1, Math.min(365, draft.staleThresholdDays))
     }
-    saveSettings.mutate(updated, {
-      onSuccess: () => {
-        setDirty(false)
-        setSaved(true)
-        setTimeout(() => setSaved(false), 2000)
-      }
-    })
-  }
-
-  const handleReset = () => {
-    if (settings) {
-      setScanRoots(settings.scanRoots)
-      setStaleThresholdDays(settings.staleThresholdDays)
-      setDirty(false)
+    const scanSettingsChanged = normalized.staleThresholdDays !== settings.staleThresholdDays
+      || normalized.scanRoots.length !== settings.scanRoots.length
+      || normalized.scanRoots.some((root, index) => root !== settings.scanRoots[index])
+    setError(null)
+    setSaveStatus(null)
+    try {
+      await saveSettings.mutateAsync(normalized)
+      setDraft(normalized)
+      setTheme(normalized.theme)
+      setHideMainWorktrees(!normalized.showMainWorktrees)
+      setSaveStatus(scanSettingsChanged ? 'refreshing' : 'saved')
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Settings could not be saved.')
     }
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="p-2.5 rounded-lg bg-primary/10">
-          <Settings className="w-5 h-5 text-primary" />
-        </div>
-        <div>
-          <h2 className="text-lg font-semibold text-text-primary">Settings</h2>
-          <p className="text-xs text-text-tertiary">Configure scan directories and preferences</p>
-        </div>
-      </div>
-
-      {/* Scan directories */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.2 }}
-        className="bg-card border border-border rounded-xl p-5 space-y-4"
-      >
-        <div>
-          <h3 className="text-sm font-semibold text-text-primary">Scan Directories</h3>
-          <p className="text-xs text-text-tertiary mt-1">
-            The app will recursively search these directories for Git repositories with worktrees.
-          </p>
+    <section className="settings-panel" aria-label="Worktree Manager settings">
+      <div className="settings-group">
+        <div className="settings-group-heading">
+          <div>
+            <h3>Scan locations</h3>
+            <p>Repositories are discovered recursively inside these folders.</p>
+          </div>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={handleAddDirectory}
+            disabled={saveSettings.isPending}
+          >
+            <FolderPlus aria-hidden="true" /> Add folder
+          </button>
         </div>
 
-        <div className="space-y-2">
-          {scanRoots.map((dir, i) => (
-            <div
-              key={dir}
-              className="flex items-center gap-2 bg-surface rounded-lg px-3 py-2 group"
-            >
-              <span className="flex-1 font-mono text-xs text-text-secondary truncate" title={dir}>
-                {dir}
-              </span>
+        <div className="scan-root-list">
+          {draft.scanRoots.length === 0 ? (
+            <p className="empty-setting">No folders configured. Add a folder to discover worktrees.</p>
+          ) : draft.scanRoots.map((directory) => (
+            <div key={directory}>
+              <code title={directory}>{directory}</code>
               <button
-                onClick={() => handleRemoveDirectory(i)}
-                className="p-1 rounded-md text-text-faint hover:text-red-400 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
-                title="Remove directory"
+                type="button"
+                className="toolbar-icon-button"
+                onClick={() => update('scanRoots', draft.scanRoots.filter((root) => root !== directory))}
+                disabled={saveSettings.isPending}
+                aria-label={`Remove ${directory}`}
               >
-                <X className="w-3.5 h-3.5" />
+                <Trash2 aria-hidden="true" />
               </button>
             </div>
           ))}
-          {scanRoots.length === 0 && (
-            <div className="text-xs text-text-faint italic py-2">
-              No directories configured. Add one below.
-            </div>
-          )}
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-row">
+          <label htmlFor="stale-threshold">
+            <strong>Mark inactive after</strong>
+            <small>Used for the stale-worktree filter. Local changes are always called out separately.</small>
+          </label>
+          <div className="number-field">
+            <input
+              id="stale-threshold"
+              type="number"
+              min={1}
+              max={365}
+              value={draft.staleThresholdDays}
+              onChange={(event) => update('staleThresholdDays', Number(event.target.value))}
+              disabled={saveSettings.isPending}
+            />
+            <span>days</span>
+          </div>
         </div>
 
-        <button
-          onClick={handleAddDirectory}
-          className="flex items-center gap-2 px-3 py-2 border border-dashed border-border-strong rounded-lg text-xs text-text-secondary hover:text-text-primary hover:border-primary/40 hover:bg-primary/5 transition-all w-full justify-center"
-        >
-          <FolderPlus className="w-3.5 h-3.5" />
-          Add Directory
-        </button>
-      </motion.div>
-
-      {/* Stale threshold */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05, duration: 0.2 }}
-        className="bg-card border border-border rounded-xl p-5 space-y-4"
-      >
-        <div>
-          <h3 className="text-sm font-semibold text-text-primary">Stale Threshold</h3>
-          <p className="text-xs text-text-tertiary mt-1">
-            Worktrees with no modifications in this many days are marked as stale.
-          </p>
+        <div className="settings-row">
+          <div>
+            <strong>Appearance</strong>
+            <small>System follows the current macOS appearance.</small>
+          </div>
+          <div className="segmented-control" role="group" aria-label="Appearance">
+            {(['system', 'light', 'dark'] as const).map((theme) => (
+              <button
+                type="button"
+                key={theme}
+                aria-pressed={draft.theme === theme}
+                onClick={() => update('theme', theme)}
+                disabled={saveSettings.isPending}
+              >
+                {theme.charAt(0).toUpperCase() + theme.slice(1)}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="settings-row">
+          <div>
+            <strong>Default worktree view</strong>
+            <small>Board groups worktrees by removal safety. List keeps the dense comparison table.</small>
+          </div>
+          <div className="segmented-control" role="group" aria-label="Default worktree view">
+            {(['board', 'table'] as const).map((view) => (
+              <button
+                type="button"
+                key={view}
+                aria-pressed={draft.defaultView === view}
+                onClick={() => update('defaultView', view)}
+                disabled={saveSettings.isPending}
+              >
+                {view === 'table' ? 'List' : 'Board'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <label className="settings-row settings-checkbox-row">
+          <span>
+            <strong>Show main checkouts by default</strong>
+            <small>Main checkouts are protected and can never be removed from the app.</small>
+          </span>
           <input
-            type="number"
-            min={1}
-            max={365}
-            value={staleThresholdDays}
-            onChange={(e) => {
-              setStaleThresholdDays(Number(e.target.value))
-              setDirty(true)
-            }}
-            className="w-20 bg-surface border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+            type="checkbox"
+            checked={draft.showMainWorktrees}
+            onChange={(event) => update('showMainWorktrees', event.target.checked)}
+            disabled={saveSettings.isPending}
           />
-          <span className="text-xs text-text-tertiary">days</span>
-        </div>
-      </motion.div>
+        </label>
+      </div>
 
-      {/* Save bar */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1, duration: 0.2 }}
-        className="flex items-center justify-end gap-3"
-      >
-        {saved && (
-          <motion.span
-            initial={{ opacity: 0, x: 8 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="text-xs text-emerald-500 font-medium"
-          >
-            Settings saved — rescan to apply
-          </motion.span>
-        )}
+      <footer className="settings-savebar">
+        <span role="status" aria-live="polite">
+          {error
+            || (saveStatus === 'refreshing'
+              ? 'Settings saved. Worktrees are refreshing.'
+              : saveStatus === 'saved'
+                ? 'Settings saved.'
+                : dirty ? 'Unsaved changes' : 'Up to date')}
+        </span>
         {dirty && (
           <button
-            onClick={handleReset}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-text-secondary hover:text-text-primary text-xs rounded-lg hover:bg-surface-hover transition-colors"
+            type="button"
+            className="button-secondary"
+            onClick={() => {
+              setDraft(settings || draft)
+              setSaveStatus(null)
+              setError(null)
+            }}
+            disabled={saveSettings.isPending}
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Reset
+            Revert
           </button>
         )}
         <button
+          type="button"
+          className="button-primary"
           onClick={handleSave}
-          disabled={!dirty}
-          className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary/90 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          disabled={!dirty || saveSettings.isPending}
         >
-          <Save className="w-3.5 h-3.5" />
-          Save Settings
+          <Save aria-hidden="true" />
+          {saveSettings.isPending ? 'Saving…' : 'Save settings'}
         </button>
-      </motion.div>
-    </div>
+      </footer>
+    </section>
   )
 }

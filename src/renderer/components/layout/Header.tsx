@@ -1,156 +1,184 @@
-import { useState, useEffect } from 'react'
-import { RefreshCw, LayoutGrid, List, Search, Moon, Sun, Check } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useEffect, useRef, useState } from 'react'
+import { AlertTriangle, Check, Monitor, Moon, RefreshCw, Search, Sun, X } from 'lucide-react'
 import { useAppStore } from '../../stores/app-store'
+import { useSaveSettings, useSettings } from '../../hooks/useWorktrees'
 import { Tooltip } from '../ui/Tooltip'
 import { cn } from '../../lib/utils'
 
 interface HeaderProps {
   isLoading: boolean
+  isFetching?: boolean
+  isHydratingDiskUsage?: boolean
   scanProgress: { current: number; total: number; repo: string } | null
+  error?: Error | null
   onRefresh: () => void
   worktreeCount: number
   totalCount: number
 }
 
-export function Header({ isLoading, scanProgress, onRefresh, worktreeCount, totalCount }: HeaderProps) {
-  const { searchQuery, setSearchQuery, viewMode, setViewMode, currentView, selectedRepo, theme, setTheme, hideMainWorktrees } = useAppStore()
+const viewTitles = {
+  dashboard: 'Overview',
+  worktrees: 'Worktrees',
+  stashes: 'Stashes',
+  settings: 'Settings'
+} as const
+
+export function Header({
+  isLoading,
+  isFetching,
+  isHydratingDiskUsage = false,
+  scanProgress,
+  error = null,
+  onRefresh,
+  worktreeCount,
+  totalCount
+}: HeaderProps) {
+  const {
+    searchQuery,
+    setSearchQuery,
+    currentView,
+    theme,
+    setTheme
+  } = useAppStore()
+  const { data: settings } = useSettings()
+  const saveSettings = useSaveSettings()
   const [showDone, setShowDone] = useState(false)
-  const [wasLoading, setWasLoading] = useState(false)
+  const wasFetching = useRef(false)
+  const [themeError, setThemeError] = useState<string | null>(null)
+  const fetching = isLoading || Boolean(isFetching)
+  const working = fetching || isHydratingDiskUsage
 
-  // Track loading -> done transition for refresh feedback
   useEffect(() => {
-    if (isLoading) {
-      setWasLoading(true)
-    } else if (wasLoading) {
-      setWasLoading(false)
-      setShowDone(true)
-      const timer = setTimeout(() => setShowDone(false), 2000)
-      return () => clearTimeout(timer)
+    if (working) {
+      wasFetching.current = true
+      setShowDone(false)
+      return
     }
-  }, [isLoading])
+    if (!wasFetching.current) {
+      if (error) setShowDone(false)
+      return
+    }
+    wasFetching.current = false
+    if (error) {
+      setShowDone(false)
+      return
+    }
+    setShowDone(true)
+    const timer = window.setTimeout(() => setShowDone(false), 1800)
+    return () => window.clearTimeout(timer)
+  }, [working, error])
 
-  const breadcrumb = currentView === 'dashboard'
-    ? 'Dashboard'
-    : selectedRepo
-      ? `${selectedRepo}`
-      : 'All Worktrees'
+  const nextTheme = theme === 'system' ? 'dark' : theme === 'dark' ? 'light' : 'system'
+  const themeName = theme === 'system' ? 'System appearance' : `${theme[0].toUpperCase()}${theme.slice(1)} appearance`
+  const ThemeIcon = theme === 'system' ? Monitor : theme === 'dark' ? Moon : Sun
+  const themeDisabled = currentView === 'settings' || !settings || saveSettings.isPending
+  const themeTooltip = currentView === 'settings'
+    ? 'Change appearance using Settings.'
+    : `${themeName}. Switch to ${nextTheme}.`
+
+  const handleThemeChange = async () => {
+    if (themeDisabled || !settings) return
+    const previousTheme = theme
+    setThemeError(null)
+    setTheme(nextTheme)
+    try {
+      await saveSettings.mutateAsync({ ...settings, theme: nextTheme })
+    } catch (saveError) {
+      setTheme(previousTheme)
+      setThemeError(saveError instanceof Error ? saveError.message : 'Appearance could not be saved.')
+    }
+  }
 
   return (
-    <div className="flex-shrink-0 px-6 py-3 border-b border-border flex items-center gap-4">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2">
-        <h2 className="text-sm font-semibold text-text-primary">{breadcrumb}</h2>
-        {currentView === 'worktrees' && (
-          <span className="text-xs text-text-tertiary">
-            {worktreeCount} worktrees{hideMainWorktrees ? ' (excluding main)' : ''}
-          </span>
-        )}
+    <header className={cn('app-toolbar', currentView === 'worktrees' && 'app-toolbar-worktrees')}>
+      <div className="app-toolbar-leading">
+        {currentView !== 'worktrees' && <h1>{viewTitles[currentView]}</h1>}
       </div>
 
-      {/* Spacer */}
-      <div className="flex-1" />
-
-      {/* Scan progress / completion toast */}
-      <AnimatePresence mode="wait">
-        {isLoading && scanProgress ? (
-          <motion.div
-            key="progress"
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 4 }}
-            className="flex items-center gap-2 text-xs text-text-tertiary"
-          >
-            <div className="w-3.5 h-3.5 border-2 border-border border-t-primary rounded-full animate-spin" />
-            <span>Scanning {scanProgress.repo}...</span>
-            <span className="text-text-faint">{scanProgress.current}/{scanProgress.total}</span>
-          </motion.div>
-        ) : showDone ? (
-          <motion.div
-            key="done"
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 4 }}
-            className="flex items-center gap-1.5 text-xs text-emerald-500"
-          >
-            <Check className="w-3.5 h-3.5" />
-            <span>Scan complete</span>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-
-      {/* Search */}
       {currentView === 'worktrees' && (
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-faint" />
+        <label className="global-worktree-search">
+          <span className="sr-only">Search worktrees</span>
+          <Search aria-hidden="true" />
           <input
-            type="text"
-            placeholder="Search..."
+            id="worktree-search"
+            type="search"
+            placeholder="Search worktrees"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-48 pl-8 pr-3 py-1.5 bg-surface border border-border rounded-lg text-xs text-text-primary placeholder:text-text-faint focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 transition-all"
+            onChange={(event) => setSearchQuery(event.target.value)}
           />
-        </div>
-      )}
-
-      {/* View toggle */}
-      {currentView === 'worktrees' && (
-        <div className="flex items-center bg-surface rounded-lg p-0.5 border border-border">
-          <Tooltip text="Card view" position="below">
-            <button
-              onClick={() => setViewMode('card')}
-              className={cn(
-                'p-1.5 rounded-md transition-all',
-                viewMode === 'card' ? 'bg-surface-active text-text-primary' : 'text-text-faint hover:text-text-secondary'
-              )}
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
+          {searchQuery ? (
+            <button type="button" onClick={() => setSearchQuery('')} aria-label="Clear worktree search">
+              <X aria-hidden="true" />
             </button>
-          </Tooltip>
-          <Tooltip text="Table view" position="below">
-            <button
-              onClick={() => setViewMode('table')}
-              className={cn(
-                'p-1.5 rounded-md transition-all',
-                viewMode === 'table' ? 'bg-surface-active text-text-primary' : 'text-text-faint hover:text-text-secondary'
-              )}
-            >
-              <List className="w-3.5 h-3.5" />
-            </button>
-          </Tooltip>
-        </div>
-      )}
-
-      {/* Theme toggle */}
-      <Tooltip text={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} position="below">
-        <button
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-          className="p-2 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-surface-hover transition-all"
-        >
-          {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-        </button>
-      </Tooltip>
-
-      {/* Refresh */}
-      <Tooltip text="Rescan all repositories (Cmd+R)" position="below">
-        <button
-          onClick={onRefresh}
-          disabled={isLoading}
-          className={cn(
-            'p-2 rounded-lg transition-all disabled:opacity-50',
-            isLoading
-              ? 'text-primary bg-primary/10'
-              : 'text-text-tertiary hover:text-text-primary hover:bg-surface-hover'
+          ) : (
+            <kbd>⌘F</kbd>
           )}
-        >
-          <motion.div
-            animate={isLoading ? { rotate: 360 } : { rotate: 0 }}
-            transition={isLoading ? { duration: 1, repeat: Infinity, ease: 'linear' } : { duration: 0.3 }}
+        </label>
+      )}
+
+      <div className="app-toolbar-trailing">
+        <div className="toolbar-status" aria-live="polite" aria-atomic="true">
+          {working ? (
+            <span>
+              <span className="native-spinner" aria-hidden="true" />
+              <span>
+                {isHydratingDiskUsage && !fetching
+                  ? 'Measuring disk usage'
+                  : scanProgress
+                  ? scanProgress.current === 0
+                    ? 'Preparing repositories'
+                    : `Scanned ${scanProgress.repo}`
+                  : 'Refreshing'}
+              </span>
+              {fetching && scanProgress && <code>{scanProgress.current}/{scanProgress.total}</code>}
+            </span>
+          ) : error ? (
+            <span className="toolbar-status-error" title={error.message}>
+              <AlertTriangle aria-hidden="true" /> Refresh failed
+            </span>
+          ) : themeError ? (
+            <span className="toolbar-status-error" title={themeError}>
+              <AlertTriangle aria-hidden="true" /> Appearance wasn’t saved
+            </span>
+          ) : showDone ? (
+            <span className="toolbar-status-safe">
+              <Check aria-hidden="true" /> Up to date
+            </span>
+          ) : currentView === 'worktrees' ? (
+            <span className="toolbar-result-count">
+              {worktreeCount === totalCount
+                ? `${worktreeCount} shown`
+                : `${worktreeCount} of ${totalCount}`}
+            </span>
+          ) : null}
+        </div>
+
+        <Tooltip text={themeTooltip} position="below">
+          <button
+            type="button"
+            onClick={() => void handleThemeChange()}
+            disabled={themeDisabled}
+            aria-label={`${themeName}. Switch to ${nextTheme} appearance.`}
+            aria-busy={saveSettings.isPending}
+            className="toolbar-icon-button"
           >
-            <RefreshCw className="w-4 h-4" />
-          </motion.div>
-        </button>
-      </Tooltip>
-    </div>
+            <ThemeIcon aria-hidden="true" />
+          </button>
+        </Tooltip>
+
+        <Tooltip text="Rescan all repositories (Command-R)" position="below">
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={working}
+            aria-label="Rescan all repositories"
+            aria-busy={working}
+            className="toolbar-icon-button"
+          >
+            <RefreshCw className={working ? 'animate-spin' : undefined} aria-hidden="true" />
+          </button>
+        </Tooltip>
+      </div>
+    </header>
   )
 }
