@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/Arjun2908/worktree-manager/compare/v1.1.1...v1.1.2) (2026-08-07)
+
+
+### Bug Fixes
+
+* separate signing identity qualifier ([#18](https://github.com/Arjun2908/worktree-manager/issues/18)) ([d0b83cd](https://github.com/Arjun2908/worktree-manager/commit/d0b83cd0ac7579bf73581ab6e321523fe7666bc6))
+
 ## [1.1.1](https://github.com/Arjun2908/worktree-manager/compare/v1.1.0...v1.1.1) (2026-08-07)
 
 
