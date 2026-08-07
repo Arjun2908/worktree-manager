@@ -35,7 +35,9 @@ jobs:
         if: github.event_name == 'push'
         uses: googleapis/release-please-action@0dfd8538845b8e92600d271a895a5372865d4062 # v5
         with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          # Keep release automation on GitHub's short-lived, repository-scoped token.
+          # Bot-authored release PR checks require an explicit maintainer approval.
+          token: ${{ github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 

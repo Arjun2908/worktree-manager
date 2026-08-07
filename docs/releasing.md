@@ -11,7 +11,7 @@ Conventional commits on main
         │
         ▼
 Release Please keeps one version + changelog PR current
-        │ merge the PR
+        │ approve its Verify run, then merge the PR
         ▼
 Draft GitHub release and bound vX.Y.Z tag
         │
@@ -58,7 +58,9 @@ Add the signing and notarization credentials to the `release` environment:
 
 The Developer ID certificate must belong to Apple Developer team `49K92AGPFW`. The workflow pins that Team ID across secret import, app and DMG signature inspection, and notarization preflight so an accidentally supplied certificate from another team cannot break update trust continuity.
 
-Add `RELEASE_PLEASE_TOKEN` as a **repository or organization Actions secret**, not an environment secret. The `release-plan` job deliberately does not enter the protected release environment. Use a fine-grained token scoped to this repository with Contents, Pull requests, and Issues read/write access. This lets Release Please's version PR trigger the normal pull-request checks; rotate it on the same schedule as other release credentials.
+In **Settings → Actions → General**, keep the default workflow token permission read-only and enable **Allow GitHub Actions to create and approve pull requests**. The release workflow grants write access only to its trusted `release-plan` job and uses GitHub's short-lived, repository-scoped token; no long-lived Release Please PAT is stored.
+
+GitHub places the normal `Verify` run for a pull request created or updated by that built-in token into an approval-required state. A maintainer must select **Approve workflows to run** on each generated release PR update. This is a deliberate human boundary: strict branch protection still prevents the release PR from merging until both required checks pass, while the repository carries no extra release-planning credential.
 
 Generate the certificate value on macOS without committing it:
 
@@ -73,17 +75,18 @@ Before enabling releases, protect `main` and require these checks:
 
 Enable immutable GitHub Releases **before** publishing the first workflow-produced release. Drafts remain editable while the workflow attaches and verifies assets; immutability starts at publication and protects that first trusted release and every later one. Legacy `v1.0.0` remains outside this contract.
 
-Do not claim the pipeline is production-active until the environment, all six secrets, branch protection, and the first workflow-produced release exist. A source-only installation has a fail-closed release workflow, but it cannot sign, notarize, or publish without this repository configuration. The daily health workflow is expected to stay red until the first verified release supersedes legacy `v1.0.0`.
+Do not claim the pipeline is production-active until the environment, all five Apple secrets, the Actions pull-request setting, branch protection, and the first workflow-produced release exist. A source-only installation has a fail-closed release workflow, but it cannot sign, notarize, or publish without this repository configuration. The daily health workflow is expected to stay red until the first verified release supersedes legacy `v1.0.0`.
 
 ## Creating a release
 
 Use Conventional Commit subjects. Release Please maps `fix:` to a patch, `feat:` to a minor, and a `!` or `BREAKING CHANGE` footer to a major version. It keeps `package.json`, `package-lock.json`, `CHANGELOG.md`, and `.release-please-manifest.json` in one release PR so Git, the app bundle, the updater metadata, and the GitHub tag cannot drift.
 
 1. Merge normal changes through a green pull request.
-2. Review and merge the automated `chore(main): release …` PR when ready to ship.
-3. Approve the `release` environment, if required.
-4. Wait for `Release / Sign, notarize, verify, and publish macOS` to finish.
-5. Download the DMG from the GitHub release and optionally verify its checksum or attestation.
+2. On the automated `chore(main): release …` PR, select **Approve workflows to run** and wait for both required checks.
+3. Review and merge that release PR when ready to ship.
+4. Approve the `release` environment, if required.
+5. Wait for `Release / Sign, notarize, verify, and publish macOS` to finish.
+6. Download the DMG from the GitHub release and optionally verify its checksum or attestation.
 
 If a release build fails because of a transient Apple/GitHub outage or corrected credential, rerun the same draft-tag workflow. A source or workflow defect cannot be repaired by rerunning: the tag intentionally remains bound to the original commit. Abandon that unpublished draft and release a fixed higher version from `main`. For a later transient manual retry, dispatch the **Release** workflow at the draft tag ref so GitHub's signed provenance names the exact source commit:
 
