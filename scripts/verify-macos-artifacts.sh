@@ -34,6 +34,30 @@ cleanup() {
 }
 trap cleanup EXIT
 
+require_fixed_detail() {
+  local details="$1"
+  local expected="$2"
+  local subject="$3"
+
+  if ! grep -Fq "$expected" <<<"$details"; then
+    echo "$subject is missing expected signature detail: $expected" >&2
+    echo "$details" >&2
+    exit 1
+  fi
+}
+
+require_regex_detail() {
+  local details="$1"
+  local expected="$2"
+  local subject="$3"
+
+  if ! grep -Eq "$expected" <<<"$details"; then
+    echo "$subject is missing expected signature pattern: $expected" >&2
+    echo "$details" >&2
+    exit 1
+  fi
+}
+
 verify_app() {
   local candidate="$1"
   local executable_name
@@ -112,10 +136,10 @@ verify_app() {
 
   if [[ "$mode" == "--release" ]]; then
     signature_details="$(codesign -d --verbose=4 "$candidate" 2>&1)"
-    grep -Fq 'Authority=Developer ID Application:' <<<"$signature_details"
-    grep -Fq "($expected_team_id)" <<<"$signature_details"
-    grep -Fq "TeamIdentifier=$expected_team_id" <<<"$signature_details"
-    grep -Eq '^flags=.*runtime' <<<"$signature_details"
+    require_fixed_detail "$signature_details" 'Authority=Developer ID Application:' 'Release app'
+    require_fixed_detail "$signature_details" "($expected_team_id)" 'Release app'
+    require_fixed_detail "$signature_details" "TeamIdentifier=$expected_team_id" 'Release app'
+    require_regex_detail "$signature_details" '^CodeDirectory .* flags=[^ ]*\(([^,()]+,)*runtime(,[^,()]+)*\)' 'Release app'
     entitlements_compact="$(codesign -d --entitlements :- "$candidate" 2>/dev/null | tr -d '[:space:]')"
     for forbidden_entitlement in \
       'com.apple.security.get-task-allow' \
@@ -190,9 +214,9 @@ EXPECTED_APP_VERSION="$package_version" node scripts/verify-update-metadata.mjs 
 if [[ "$mode" == "--release" ]]; then
   codesign --verify --strict --verbose=2 "$dmg_path"
   dmg_signature_details="$(codesign -d --verbose=4 "$dmg_path" 2>&1)"
-  grep -Fq 'Authority=Developer ID Application:' <<<"$dmg_signature_details"
-  grep -Fq "($expected_team_id)" <<<"$dmg_signature_details"
-  grep -Fq "TeamIdentifier=$expected_team_id" <<<"$dmg_signature_details"
+  require_fixed_detail "$dmg_signature_details" 'Authority=Developer ID Application:' 'Release DMG'
+  require_fixed_detail "$dmg_signature_details" "($expected_team_id)" 'Release DMG'
+  require_fixed_detail "$dmg_signature_details" "TeamIdentifier=$expected_team_id" 'Release DMG'
   spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg_path"
   xcrun stapler validate "$dmg_path"
 fi
