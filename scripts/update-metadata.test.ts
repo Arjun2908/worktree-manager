@@ -9,10 +9,18 @@ import { afterEach, describe, expect, it } from 'vitest'
 const execFileAsync = promisify(execFile)
 const tempDirs: string[] = []
 
-async function fixtureDirectory(): Promise<string> {
+type UpdateFixture = {
+  directory: string
+  packageVersion: string
+  zipName: string
+}
+
+async function fixtureDirectory(artifactVersion?: string): Promise<UpdateFixture> {
   const directory = await mkdtemp(join(tmpdir(), 'worktree-manager-update-metadata-'))
   tempDirs.push(directory)
-  const zipName = 'Worktree-Manager-1.0.0-universal.zip'
+  const packageJson = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8'))
+  const packageVersion = packageJson.version as string
+  const zipName = `Worktree-Manager-${artifactVersion ?? packageVersion}-universal.zip`
   await writeFile(join(directory, zipName), 'updater archive bytes')
   await writeFile(join(directory, `${zipName}.blockmap`), 'block map bytes')
   await writeFile(join(directory, 'obsolete.dmg.blockmap'), 'obsolete')
@@ -22,7 +30,7 @@ async function fixtureDirectory(): Promise<string> {
     sha512: 'obsolete',
     files: []
   }))
-  return directory
+  return { directory, packageVersion, zipName }
 }
 
 async function runScript(script: string, releaseDirectory: string): Promise<void> {
@@ -39,15 +47,15 @@ afterEach(async () => {
 
 describe('macOS update metadata', () => {
   it('normalizes metadata to the updater ZIP and verifies every linked value', async () => {
-    const directory = await fixtureDirectory()
+    const { directory, packageVersion, zipName } = await fixtureDirectory()
     await runScript('normalize-update-metadata.mjs', directory)
     await runScript('verify-update-metadata.mjs', directory)
 
     const metadata = parse(await readFile(join(directory, 'latest-mac.yml'), 'utf8'))
     expect(metadata).toMatchObject({
-      version: '1.0.0',
-      path: 'Worktree-Manager-1.0.0-universal.zip',
-      files: [{ url: 'Worktree-Manager-1.0.0-universal.zip' }]
+      version: packageVersion,
+      path: zipName,
+      files: [{ url: zipName }]
     })
     await expect(access(join(directory, 'obsolete.dmg.blockmap'))).rejects.toMatchObject({
       code: 'ENOENT'
@@ -55,15 +63,21 @@ describe('macOS update metadata', () => {
   })
 
   it('rejects an updater archive changed after metadata generation', async () => {
-    const directory = await fixtureDirectory()
+    const { directory, zipName } = await fixtureDirectory()
     await runScript('normalize-update-metadata.mjs', directory)
-    await writeFile(
-      join(directory, 'Worktree-Manager-1.0.0-universal.zip'),
-      'tampered updater archive bytes'
-    )
+    await writeFile(join(directory, zipName), 'tampered updater archive bytes')
 
     await expect(runScript('verify-update-metadata.mjs', directory)).rejects.toMatchObject({
       stderr: expect.stringContaining('SHA-512 does not match')
+    })
+  })
+
+  it('rejects an updater archive whose filename has the wrong version', async () => {
+    const { directory, packageVersion } = await fixtureDirectory('999.0.0')
+    await runScript('normalize-update-metadata.mjs', directory)
+
+    await expect(runScript('verify-update-metadata.mjs', directory)).rejects.toMatchObject({
+      stderr: expect.stringContaining(`does not match package version ${packageVersion}`)
     })
   })
 })
