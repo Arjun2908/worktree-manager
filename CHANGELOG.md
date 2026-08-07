@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3](https://github.com/Arjun2908/worktree-manager/compare/v1.1.2...v1.1.3) (2026-08-07)
+
+
+### Bug Fixes
+
+* recognize codesign runtime flags ([#20](https://github.com/Arjun2908/worktree-manager/issues/20)) ([b533c6e](https://github.com/Arjun2908/worktree-manager/commit/b533c6ecd613d0f786a5b91aa02b772eaa147753))
+
 ## [1.1.2](https://github.com/Arjun2908/worktree-manager/compare/v1.1.1...v1.1.2) (2026-08-07)
 
 
