@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/Arjun2908/worktree-manager/compare/v1.1.0...v1.1.1) (2026-08-07)
+
+
+### Bug Fixes
+
+* avoid admin-only release preflight ([#16](https://github.com/Arjun2908/worktree-manager/issues/16)) ([e4f856f](https://github.com/Arjun2908/worktree-manager/commit/e4f856f0476a6ab5bf9e183a906e6feff2c486a9))
+
 ## [1.1.0](https://github.com/Arjun2908/worktree-manager/compare/v1.0.0...v1.1.0) (2026-08-07)
 
 
