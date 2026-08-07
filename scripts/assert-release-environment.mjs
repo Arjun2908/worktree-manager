@@ -11,11 +11,17 @@ if (process.platform !== 'darwin') {
   fail('signed macOS releases must be built on macOS')
 }
 
-if (!process.env.CSC_NAME?.startsWith('Developer ID Application:')) {
-  fail('CSC_NAME must name a Developer ID Application certificate')
+const cscName = process.env.CSC_NAME
+const releaseSigningIdentity = process.env.RELEASE_SIGNING_IDENTITY
+
+if (!cscName || cscName.startsWith('Developer ID Application:')) {
+  fail('CSC_NAME must be a Developer ID Application identity qualifier without its type prefix')
 }
-if (!process.env.CSC_NAME.endsWith(`(${expectedAppleTeamId})`)) {
+if (!cscName.endsWith(`(${expectedAppleTeamId})`)) {
   fail(`CSC_NAME must belong to Apple Developer team ${expectedAppleTeamId}`)
+}
+if (releaseSigningIdentity !== `Developer ID Application: ${cscName}`) {
+  fail('RELEASE_SIGNING_IDENTITY must be the full Developer ID Application identity')
 }
 
 const apiKeyCredentials =

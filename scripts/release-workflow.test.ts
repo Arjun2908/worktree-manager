@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -81,6 +82,62 @@ describe('release workflow trust contract', () => {
     expect(publishRelease).toBeGreaterThanOrEqual(0)
     expect(requireImmutable).toBeGreaterThan(publishRelease ?? -1)
     expect(verifyIntegrity).toBeGreaterThan(requireImmutable ?? -1)
+  })
+
+  it('separates the electron-builder qualifier from the full codesign identity', async () => {
+    const { workflow } = await loadWorkflow('release.yml')
+    const importCredentials = workflow.jobs['release-macos'].steps?.find(
+      (step) => step.name === 'Import Developer ID certificate and App Store Connect key'
+    )?.run
+    const assertEnvironment = await readFile('scripts/assert-release-environment.mjs', 'utf8')
+    const notarizeDmg = await readFile('scripts/notarize-dmg.sh', 'utf8')
+
+    expect(importCredentials).toContain(
+      'identity_qualifier="${identity#Developer ID Application: }"'
+    )
+    expect(importCredentials).toContain('echo "CSC_NAME=$identity_qualifier" >> "$GITHUB_ENV"')
+    expect(importCredentials).toContain(
+      'echo "RELEASE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"'
+    )
+    expect(importCredentials).not.toContain('echo "CSC_NAME=$identity" >> "$GITHUB_ENV"')
+    expect(assertEnvironment).toContain(
+      'releaseSigningIdentity !== `Developer ID Application: ${cscName}`'
+    )
+    expect(notarizeDmg).toContain('codesign --force --timestamp --sign "$signing_identity"')
+  })
+
+  it('rejects a prefixed CSC_NAME and accepts its matching qualifier', () => {
+    const checkEnvironment = (cscName: string, releaseSigningIdentity: string) =>
+      spawnSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          "Object.defineProperty(process, 'platform', { value: 'darwin' }); await import('./scripts/assert-release-environment.mjs')"
+        ],
+        {
+          cwd: resolve('.'),
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            EXPECTED_APPLE_TEAM_ID: '49K92AGPFW',
+            CSC_NAME: cscName,
+            RELEASE_SIGNING_IDENTITY: releaseSigningIdentity,
+            APPLE_API_KEY: resolve('package.json'),
+            APPLE_API_KEY_ID: 'test-key',
+            APPLE_API_ISSUER: 'test-issuer'
+          }
+        }
+      )
+
+    const qualifier = 'Arjun Gupta (49K92AGPFW)'
+    const fullIdentity = `Developer ID Application: ${qualifier}`
+    const valid = checkEnvironment(qualifier, fullIdentity)
+    const invalid = checkEnvironment(fullIdentity, fullIdentity)
+
+    expect(valid.status, valid.stderr).toBe(0)
+    expect(invalid.status).not.toBe(0)
+    expect(invalid.stderr).toContain('identity qualifier without its type prefix')
   })
 
   it('keeps release tags compatible with the updater and version verifier', async () => {

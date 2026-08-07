@@ -121,8 +121,14 @@ jobs:
           identity="$(security find-identity -v -p codesigning "$keychain_path" | sed -n 's/.*"\(Developer ID Application:.*\)".*/\1/p' | head -1)"
           test -n "$identity"
           [[ "$identity" == *"($EXPECTED_APPLE_TEAM_ID)" ]]
+          identity_qualifier="${identity#Developer ID Application: }"
+          test -n "$identity_qualifier"
+          test "$identity_qualifier" != "$identity"
 
-          echo "CSC_NAME=$identity" >> "$GITHUB_ENV"
+          # electron-builder selects the certificate type and rejects that prefix in CSC_NAME.
+          # Keep the full Keychain identity separately for direct DMG codesign.
+          echo "CSC_NAME=$identity_qualifier" >> "$GITHUB_ENV"
+          echo "RELEASE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
           echo "CSC_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
           echo "RELEASE_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
           echo "RELEASE_CERTIFICATE=$certificate_path" >> "$GITHUB_ENV"
