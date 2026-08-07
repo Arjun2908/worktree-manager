@@ -8,7 +8,7 @@ If you use AI coding tools, you've probably ended up with dozens of orphaned wor
 
 ### Prerequisites
 
-- **Node.js** 18+ and **npm**
+- **Node.js** 22.23.2 LTS and **npm** (`.nvmrc` and `.node-version` pin the patched build runtime)
 - **Git** (used under the hood for all worktree operations)
 - **macOS** (Electron is configured for macOS — Linux/Windows may work but are untested)
 - **GitHub CLI** (`gh`) — optional, enables PR detection per worktree
@@ -39,34 +39,19 @@ Creates a distributable `.dmg` without code signing — recipients will need to 
 npm run dist:unsigned
 ```
 
-The `.dmg` and `.zip` will be in the `release/` directory.
+The `.dmg` and `.zip` will be in the `release/` directory. Unsigned builds are for local testing only and are never published by CI.
 
-### Package with Code Signing + Notarization
+### Verified Releases and Automatic Updates
 
-For a clean install experience with no Gatekeeper warnings, you need an [Apple Developer account](https://developer.apple.com/) ($99/year).
+Production releases use an automated GitHub Actions pipeline. It refuses missing credentials, signs and notarizes both the universal app and final DMG, staples Apple tickets, exercises Gatekeeper, launches the packaged app from both the DMG and updater ZIP, verifies updater metadata, generates checksums and provenance, and only then publishes the draft release. Installed production builds expose update checks, downloads, and restart-to-install status in the sidebar.
 
-**One-time setup:**
+> **Distribution note:** the existing `v1.0.0` release predates this verification pipeline, is not notarized, and has no updater. Do not redistribute it as a trusted build. Existing users must manually install the first release produced by the new `Release` workflow once; automatic updates begin from that release onward.
 
-1. Create a "Developer ID Application" certificate in the Apple Developer portal and install it in your Keychain
-2. Set environment variables (add to your shell profile or a `.env` file):
-
-```bash
-export APPLE_TEAM_ID="YOUR_10_CHAR_TEAM_ID"     # From developer.apple.com → Membership
-export APPLE_ID="your@email.com"                  # Your Apple ID
-export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"  # Generate at appleid.apple.com → Sign-In and Security → App-Specific Passwords
-```
-
-3. Build:
-
-```bash
-npm run dist
-```
-
-This will code-sign the app with your Developer ID certificate, submit it to Apple's notarization service, staple the notarization ticket, and produce a `.dmg` ready for distribution.
+See [docs/releasing.md](docs/releasing.md) for repository setup, required secrets, semantic versioning, verification evidence, release repair, and rollback.
 
 ### Configuration
 
-On first launch, the app scans `~/source` by default. To change scan directories, click the settings gear (or edit `~/.config/worktree-manager/settings.json` directly).
+On first launch, the app scans `~/source` by default. To change scan directories, click **Settings** in the sidebar and add/remove directories. Settings are stored at `~/.config/worktree-manager/settings.json`.
 
 ## Features
 
@@ -83,17 +68,17 @@ Cross-references all three to detect orphaned directories that git no longer tra
 
 Each worktree shows a one-line summary of what it contains, generated from the commit messages unique to that branch (e.g. *"Fix auth flow &middot; Add tests &middot; Refactor middleware"*). No more guessing what `adoring-volhard` was for.
 
-### Safety Score (Traffic Light)
+### Safety Status
 
-A green, yellow, or red dot next to every worktree tells you at a glance whether it's safe to delete:
+Every worktree is labeled **Safe**, **Review**, or **Unsafe** so cleanup decisions do not rely on color alone:
 
-| Color | Meaning | Criteria |
-|-------|---------|----------|
-| Green | Safe to delete | Merged + clean, or clean + pushed to remote |
-| Yellow | Use caution | Merged but has uncommitted changes, or pushed but dirty |
-| Red | Not safe | Uncommitted changes + local-only branch, or unpushed unmerged work |
+| Status | Meaning | Criteria |
+|--------|---------|----------|
+| Safe | Recoverable | Merged + clean, or clean with the complete branch tip pushed to its upstream |
+| Review | Check local state | Detached HEAD, or recoverable commits with uncommitted changes |
+| Unsafe | Local work could be lost | Unpushed commits, local-only work, or unregistered non-empty directories |
 
-Hover over the dot to see the specific reasons (e.g. "merged into main, clean working tree, pushed to remote").
+Hover or focus the status to see the exact reasons (for example, "merged into main, clean working tree, pushed to origin/main").
 
 ### Branch Divergence
 
@@ -114,31 +99,44 @@ Surfaces the hidden stashes accumulating in your repos:
 
 ### Dashboard
 
-Overview stats at a glance:
-- Total worktrees, disk usage, stale count, prunable count
-- Safe-to-delete count and total stashes across all repos
-- Disk usage breakdown bar chart by repository
-- Repo ranking by worktree count
+A cleanup-first overview shows:
+
+- Linked worktrees and their total disk use
+- Safety-verified reclaimable space
+- Worktrees that still need review
+- Saved stashes and per-repository cleanup totals
 
 ### Bulk Operations
 
-- Select multiple worktrees and delete them in one action
-- Filter by "Safe to Delete" to see only green-light worktrees
+- Select multiple worktrees and remove them in one batch
+- Successful removals update every cached count and disk total immediately
+- Partial failures remain selected and are reported individually
+- Filter by "Safe to remove" or "Needs review"
 - Force delete option for worktrees with uncommitted changes
 - Lock/unlock worktrees to prevent accidental pruning
 
 ### Views & Filtering
 
-- **Card view** and **table view** with all columns (source, branch, summary, repo, PR, safety, ahead/behind, status, modified, size)
-- Filter by source (Git / Claude / Cursor), status (active, stale, locked, prunable, orphan, detached, safe to delete)
+- A cleanup-first safety board is the default, grouping worktrees into safe, review, and local-risk lanes with a persistent inspector
+- A dense comparison list remains available for source, branch, summary, repo, PR, safety, ahead/behind, status, modified time, and size
+- Filter by source (Git / Claude / Cursor), status (active, stale, locked, prunable, orphan, detached, safe to remove, needs review)
 - Search across branch names, repo names, and paths
 - Sort by name, branch, last modified, disk size, or source
 - Toggle main worktree visibility
-- Dark and light themes
+- System, dark, and light appearances
+
+### Scan Performance
+
+- Repositories and linked worktrees are deduplicated by their canonical Git common directory
+- Core repository and safety data renders first; slower disk totals hydrate in the background without blocking the board
+- Git enrichment and disk measurement use bounded concurrency, including bounded per-path fallback after a slow batch
+- Disk sizes are cached for five minutes, making repeat and post-cleanup scans substantially faster
+- Identical in-flight scans are coalesced instead of running duplicate work
 
 ### Quick Actions
 
-Right-click context menu on any worktree:
+Use the action menu on any worktree to:
+
 - Open in Finder
 - Open in Terminal
 - Open in VS Code
@@ -148,17 +146,16 @@ Right-click context menu on any worktree:
 
 ## Tech Stack
 
-- **Electron** 35 — native desktop shell
+- **Electron** 43 — native desktop shell
 - **React** 19 — UI framework
 - **Vite** 7 + electron-vite — build tooling with hot reload
 - **Tailwind CSS** 3 — styling with semantic design tokens for dark/light themes
 - **Zustand** — client state management
 - **React Query** — server state (IPC data fetching)
-- **Framer Motion** — animations and transitions
 - **Lucide React** — icons
 
-All git operations use `child_process.execFile` (not `exec`) to avoid shell injection. No data leaves your machine — everything runs locally via git commands.
+All git operations use `child_process.execFile` (not `exec`) to avoid shell injection. Repository contents and worktree data stay local. Update checks and optional pull-request enrichment contact GitHub for public release and PR metadata.
 
 ## License
 
-ISC
+[ISC](LICENSE). Commercial use, modification, and redistribution are permitted under its terms.

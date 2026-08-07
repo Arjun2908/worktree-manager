@@ -4,27 +4,27 @@ import type { WorktreeStatus } from '../../types'
 const statusConfig: Record<WorktreeStatus, { label: string; className: string }> = {
   active: {
     label: 'Active',
-    className: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+    className: 'status-active'
   },
   stale: {
     label: 'Stale',
-    className: 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+    className: 'status-stale'
   },
   locked: {
     label: 'Locked',
-    className: 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+    className: 'status-locked'
   },
   prunable: {
     label: 'Prunable',
-    className: 'bg-red-500/10 text-red-400 border-red-500/20'
+    className: 'status-prunable'
   },
   detached: {
     label: 'Detached',
-    className: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20'
+    className: 'status-detached'
   },
   orphan: {
     label: 'Orphan',
-    className: 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+    className: 'status-orphan'
   }
 }
 
@@ -38,7 +38,7 @@ export function StatusBadge({ status }: StatusBadgeProps) {
 
   return (
     <span className={cn(
-      'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border',
+      'status-badge',
       config.className
     )}>
       {config.label}

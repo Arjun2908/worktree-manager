@@ -3,11 +3,12 @@ import { Tooltip } from '../ui/Tooltip'
 interface DivergenceBadgeProps {
   ahead: number
   behind: number
+  focusable?: boolean
 }
 
-export function DivergenceBadge({ ahead, behind }: DivergenceBadgeProps) {
+export function DivergenceBadge({ ahead, behind, focusable = true }: DivergenceBadgeProps) {
   if (ahead === 0 && behind === 0) {
-    return <span className="text-[11px] font-mono text-text-faint">in sync</span>
+    return <span className="text-[11px] font-mono text-text-tertiary">in sync</span>
   }
 
   const parts: string[] = []
@@ -16,15 +17,19 @@ export function DivergenceBadge({ ahead, behind }: DivergenceBadgeProps) {
 
   return (
     <Tooltip text={parts.join(', ')}>
-      <span className="inline-flex items-center gap-1 font-mono text-[11px]">
+      <span
+        className="inline-flex items-center gap-1.5 font-mono text-[11px]"
+        aria-label={parts.join(', ')}
+        tabIndex={focusable ? 0 : undefined}
+      >
         {ahead > 0 && (
-          <span className="text-emerald-400">
-            <span className="opacity-60">&uarr;</span>{ahead}
+          <span style={{ color: 'hsl(var(--semantic-safe))' }} aria-hidden="true">
+            <span className="opacity-75">&uarr;</span>{ahead}
           </span>
         )}
         {behind > 0 && (
-          <span className="text-amber-400">
-            <span className="opacity-60">&darr;</span>{behind}
+          <span style={{ color: 'hsl(var(--semantic-caution))' }} aria-hidden="true">
+            <span className="opacity-75">&darr;</span>{behind}
           </span>
         )}
       </span>

@@ -1,185 +1,229 @@
-import { useEffect, useMemo } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { useEffect, useMemo, useRef } from 'react'
 import { useAppStore } from './stores/app-store'
-import { useWorktrees, useSettings } from './hooks/useWorktrees'
+import { useRefreshData, useSettings, useWorktrees } from './hooks/useWorktrees'
 import { useSelection } from './hooks/useSelection'
 import { Sidebar } from './components/layout/Sidebar'
 import { Header } from './components/layout/Header'
 import { Dashboard } from './components/dashboard/Dashboard'
-import { WorktreeList } from './components/worktrees/WorktreeList'
+import { WorktreeWorkspace } from './components/worktrees/WorktreeWorkspace'
 import { StashBrowser } from './components/stashes/StashBrowser'
+import { SettingsPanel } from './components/settings/SettingsPanel'
 import type { Worktree } from './types'
 
 export default function App() {
-  const { currentView, selectedRepo, hideMainWorktrees, sourceFilter, statusFilter, searchQuery, sortBy, sortDirection, theme } = useAppStore()
+  const {
+    currentView,
+    selectedRepo,
+    hideMainWorktrees,
+    sourceFilter,
+    statusFilter,
+    searchQuery,
+    sortBy,
+    sortDirection,
+    theme,
+    setTheme,
+    setHideMainWorktrees,
+    setSelectedRepo,
+    setWorktreeView,
+    setCurrentView
+  } = useAppStore()
   const { data: settings } = useSettings()
-  const scanRoots = settings?.scanRoots || ['/Users/arjungupta/source']
-  const { data: scanResult, isLoading, refetch, scanProgress } = useWorktrees(scanRoots)
+  const scanRoots = settings?.scanRoots || []
+  const staleThresholdDays = settings?.staleThresholdDays || 30
+  const {
+    data: scanResult,
+    isLoading,
+    isFetching,
+    isHydratingDiskUsage,
+    error,
+    scanProgress
+  } = useWorktrees(scanRoots, staleThresholdDays)
+  const { refresh, isRefreshing } = useRefreshData()
   const selection = useSelection()
+  const didInitializeSettings = useRef(false)
+  const didInitializeRepoScope = useRef(false)
 
-  // Apply theme
+  useEffect(() => {
+    if (!settings) return
+    setTheme(settings.theme)
+    setHideMainWorktrees(!settings.showMainWorktrees)
+    if (!didInitializeSettings.current) {
+      didInitializeSettings.current = true
+      setWorktreeView(settings.defaultView)
+    }
+  }, [settings, setTheme, setHideMainWorktrees, setWorktreeView])
+
   useEffect(() => {
     const root = document.documentElement
-    if (theme === 'dark') {
-      root.classList.add('dark')
-      root.classList.remove('light')
-    } else if (theme === 'light') {
-      root.classList.remove('dark')
-      root.classList.add('light')
-    } else {
-      // System theme - default to dark
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-      root.classList.toggle('dark', prefersDark)
-      root.classList.toggle('light', !prefersDark)
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const apply = () => {
+      const dark = theme === 'dark' || (theme === 'system' && media.matches)
+      root.classList.toggle('dark', dark)
+      root.classList.toggle('light', !dark)
+      root.style.colorScheme = dark ? 'dark' : 'light'
     }
+    apply()
+    if (theme !== 'system') return
+    media.addEventListener('change', apply)
+    return () => media.removeEventListener('change', apply)
   }, [theme])
 
-  // Filter and sort worktrees
+  const allWorktrees = useMemo(
+    () => scanResult?.repos.flatMap((repo) => repo.worktrees) || [],
+    [scanResult]
+  )
+
+  const scopedWorktrees = useMemo(() => {
+    let worktrees = allWorktrees
+    if (hideMainWorktrees) worktrees = worktrees.filter((worktree) => !worktree.isMainWorktree)
+    if (selectedRepo) worktrees = worktrees.filter((worktree) => worktree.repoPath === selectedRepo)
+    return worktrees
+  }, [allWorktrees, hideMainWorktrees, selectedRepo])
+
+  useEffect(() => {
+    if (didInitializeRepoScope.current || !scanResult || isFetching || error) return
+    const reposWithLinkedWorktrees = scanResult.repos.filter((repo) =>
+      repo.worktrees.some((worktree) => !worktree.isMainWorktree)
+    )
+    if (reposWithLinkedWorktrees.length === 0) return
+    didInitializeRepoScope.current = true
+    if (reposWithLinkedWorktrees.length === 1) {
+      setSelectedRepo(reposWithLinkedWorktrees[0].path)
+    }
+  }, [scanResult, isFetching, error, setSelectedRepo])
+
   const filteredWorktrees = useMemo(() => {
-    if (!scanResult) return []
-
-    let worktrees: Worktree[] = scanResult.repos.flatMap((r) => r.worktrees)
-
-    if (hideMainWorktrees) {
-      worktrees = worktrees.filter((w) => !w.isMainWorktree)
-    }
-
-    if (selectedRepo) {
-      worktrees = worktrees.filter((w) => w.repoName === selectedRepo)
-    }
+    let worktrees: Worktree[] = [...scopedWorktrees]
 
     if (sourceFilter !== 'all') {
-      worktrees = worktrees.filter((w) => w.source === sourceFilter)
+      worktrees = worktrees.filter((worktree) => worktree.source === sourceFilter)
     }
-
     if (statusFilter === 'safe') {
-      worktrees = worktrees.filter((w) => w.safety.level === 'safe' && !w.isMainWorktree)
+      worktrees = worktrees.filter((worktree) => worktree.safety.level === 'safe' && !worktree.isMainWorktree)
+    } else if (statusFilter === 'review') {
+      worktrees = worktrees.filter((worktree) => worktree.safety.level !== 'safe' && !worktree.isMainWorktree)
     } else if (statusFilter !== 'all') {
-      worktrees = worktrees.filter((w) => w.statuses.includes(statusFilter))
+      worktrees = worktrees.filter((worktree) => worktree.statuses.includes(statusFilter))
     }
-
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      worktrees = worktrees.filter(
-        (w) =>
-          w.path.toLowerCase().includes(q) ||
-          w.branch?.toLowerCase().includes(q) ||
-          w.repoName.toLowerCase().includes(q)
+    if (searchQuery.trim()) {
+      const query = searchQuery.trim().toLowerCase()
+      worktrees = worktrees.filter((worktree) =>
+        worktree.path.toLowerCase().includes(query)
+        || worktree.branch?.toLowerCase().includes(query)
+        || worktree.repoName.toLowerCase().includes(query)
+        || worktree.summary.toLowerCase().includes(query)
       )
     }
 
-    // Sort
-    worktrees.sort((a, b) => {
-      let cmp = 0
+    worktrees.sort((left, right) => {
+      let comparison = 0
       switch (sortBy) {
         case 'name':
-          cmp = a.repoName.localeCompare(b.repoName)
+          comparison = left.repoName.localeCompare(right.repoName)
           break
         case 'branch':
-          cmp = (a.branch || '').localeCompare(b.branch || '')
+          comparison = (left.branch || '').localeCompare(right.branch || '')
           break
         case 'lastModified':
-          cmp = (a.lastModified || '').localeCompare(b.lastModified || '')
+          comparison = (left.lastModified || '').localeCompare(right.lastModified || '')
           break
         case 'diskSize':
-          cmp = (a.diskSize || 0) - (b.diskSize || 0)
+          comparison = (left.diskSize || 0) - (right.diskSize || 0)
           break
         case 'source':
-          cmp = a.source.localeCompare(b.source)
+          comparison = left.source.localeCompare(right.source)
           break
       }
-      return sortDirection === 'asc' ? cmp : -cmp
+      return sortDirection === 'asc' ? comparison : -comparison
     })
-
     return worktrees
-  }, [scanResult, hideMainWorktrees, selectedRepo, sourceFilter, statusFilter, searchQuery, sortBy, sortDirection])
+  }, [scopedWorktrees, sourceFilter, statusFilter, searchQuery, sortBy, sortDirection])
 
-  // Keyboard shortcuts
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.metaKey && e.key === 'r') {
-        e.preventDefault()
-        refetch()
-      }
-      if (e.key === 'Escape') {
+    selection.reconcile(allWorktrees
+      .filter((worktree) => !worktree.isMainWorktree)
+      .map((worktree) => worktree.id))
+  }, [allWorktrees, selection.reconcile])
+
+  useEffect(() => {
+    if (!selectedRepo || !scanResult || isFetching || error) return
+    if (!scanResult.repos.some((repo) => repo.path === selectedRepo)) {
+      setSelectedRepo(null)
+    }
+  }, [selectedRepo, scanResult, isFetching, error, setSelectedRepo])
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (event.metaKey && event.key.toLowerCase() === 'r') {
+        event.preventDefault()
+        if (!isRefreshing && !isHydratingDiskUsage) void refresh()
+      } else if (event.metaKey && event.key.toLowerCase() === 'f' && currentView === 'worktrees') {
+        event.preventDefault()
+        const search = document.getElementById('worktree-search') as HTMLInputElement | null
+        search?.focus()
+        search?.select()
+      } else if (event.key === 'Escape') {
         selection.deselectAll()
       }
     }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [refetch, selection])
+    window.addEventListener('keydown', handleShortcut)
+    return () => window.removeEventListener('keydown', handleShortcut)
+  }, [currentView, isHydratingDiskUsage, isRefreshing, refresh, selection.deselectAll])
+
+  const queryError = error instanceof Error ? error : error ? new Error(String(error)) : null
+  const selectedRepoName = selectedRepo
+    ? scanResult?.repos.find((repo) => repo.path === selectedRepo)?.name ?? null
+    : null
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden">
-      {/* Title bar drag region */}
-      <div className="titlebar-drag h-12 flex-shrink-0 flex items-center px-20">
-        <span className="text-xs font-medium text-text-faint titlebar-no-drag">
-          Worktree Manager
-        </span>
-      </div>
+    <div className="app-shell">
+      <Sidebar
+        repos={scanResult?.repos || []}
+        totalWorktrees={scanResult?.totalWorktrees || 0}
+        totalDiskUsage={scanResult?.totalDiskUsage || 0}
+        isLoading={isLoading}
+      />
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <Sidebar
-          repos={scanResult?.repos || []}
-          totalWorktrees={scanResult?.totalWorktrees || 0}
-          totalDiskUsage={scanResult?.totalDiskUsage || 0}
+      <div className="app-main">
+        <Header
           isLoading={isLoading}
+          isFetching={isRefreshing}
+          isHydratingDiskUsage={isHydratingDiskUsage}
+          scanProgress={scanProgress}
+          error={queryError}
+          onRefresh={() => { if (!isRefreshing && !isHydratingDiskUsage) void refresh() }}
+          worktreeCount={filteredWorktrees.length}
+          totalCount={scopedWorktrees.length}
         />
 
-        {/* Main content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <Header
-            isLoading={isLoading}
-            scanProgress={scanProgress}
-            onRefresh={() => refetch()}
-            worktreeCount={filteredWorktrees.length}
-            totalCount={filteredWorktrees.length}
-          />
-
-          <main className="flex-1 overflow-auto p-6">
-            <AnimatePresence mode="wait">
-              {currentView === 'dashboard' ? (
-                <motion.div
-                  key="dashboard"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.2, ease: 'easeOut' }}
-                >
-                  <Dashboard
-                    scanResult={scanResult || null}
-                    isLoading={isLoading}
-                  />
-                </motion.div>
-              ) : currentView === 'stashes' ? (
-                <motion.div
-                  key="stashes"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.2, ease: 'easeOut' }}
-                >
-                  <StashBrowser repos={scanResult?.repos || []} />
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="worktrees"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.2, ease: 'easeOut' }}
-                >
-                  <WorktreeList
-                    worktrees={filteredWorktrees}
-                    isLoading={isLoading}
-                    selection={selection}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </main>
-        </div>
+        <main className={`app-content app-content-${currentView}`}>
+          {currentView === 'dashboard' ? (
+            <Dashboard
+              scanResult={scanResult || null}
+              isLoading={isLoading}
+              isFetching={isFetching || isHydratingDiskUsage}
+              error={queryError}
+              onRetry={() => { if (!isRefreshing) void refresh() }}
+            />
+          ) : currentView === 'settings' ? (
+            <SettingsPanel />
+          ) : currentView === 'stashes' ? (
+            <StashBrowser repos={scanResult?.repos || []} />
+          ) : (
+            <WorktreeWorkspace
+              worktrees={filteredWorktrees}
+              scopedWorktrees={scopedWorktrees}
+              isLoading={isLoading}
+              isFetching={isFetching}
+              error={queryError}
+              selection={selection}
+              scopeKey={selectedRepo}
+              selectedRepoName={selectedRepoName}
+              onRetry={() => { if (!isRefreshing) void refresh() }}
+              onOpenSettings={() => setCurrentView('settings')}
+            />
+          )}
+        </main>
       </div>
     </div>
   )

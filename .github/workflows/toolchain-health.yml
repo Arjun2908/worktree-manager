@@ -1,0 +1,32 @@
+name: Toolchain Health
+
+on:
+  schedule:
+    - cron: "41 14 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node-lts-patch:
+    name: Node 22 pin is current
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out runtime pins
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Compare pins with the current Node 22 LTS patch
+        run: |
+          latest_node="$(curl --fail --silent --show-error --location https://nodejs.org/dist/index.json | jq -r '[.[] | select(.lts != false and (.version | startswith("v22.")))][0].version | ltrimstr("v")')"
+          [[ "$latest_node" =~ ^22\.[0-9]+\.[0-9]+$ ]]
+          test "$(tr -d '[:space:]' < .nvmrc)" = "$latest_node"
+          test "$(tr -d '[:space:]' < .node-version)" = "$latest_node"
+          test "$(node -p "require('./package.json').engines.node")" = ">=$latest_node"
+          mapfile -t workflow_pins < <(grep -RhoE 'node-version: [0-9]+\.[0-9]+\.[0-9]+' .github/workflows | awk '{print $2}')
+          test "${#workflow_pins[@]}" -gt 0
+          for workflow_pin in "${workflow_pins[@]}"; do
+            test "$workflow_pin" = "$latest_node"
+          done

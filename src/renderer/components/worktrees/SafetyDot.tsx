@@ -1,16 +1,17 @@
+import { AlertTriangle, ShieldCheck } from 'lucide-react'
 import { Tooltip } from '../ui/Tooltip'
 import type { SafetyLevel } from '../../types'
 
-const dotColors: Record<SafetyLevel, string> = {
-  safe: 'bg-emerald-500 shadow-emerald-500/40',
-  caution: 'bg-amber-500 shadow-amber-500/40',
-  danger: 'bg-red-500 shadow-red-500/40'
+const levelClasses: Record<SafetyLevel, string> = {
+  safe: 'safety-safe',
+  caution: 'safety-caution',
+  danger: 'safety-danger'
 }
 
 const labels: Record<SafetyLevel, string> = {
-  safe: 'Safe to delete',
-  caution: 'Use caution',
-  danger: 'Not safe to delete'
+  safe: 'Safe',
+  caution: 'Review',
+  danger: 'Unsafe'
 }
 
 interface SafetyDotProps {
@@ -20,15 +21,21 @@ interface SafetyDotProps {
 }
 
 export function SafetyDot({ level, reasons, size = 'sm' }: SafetyDotProps) {
-  const tooltipText = `${labels[level]}: ${reasons.join(', ')}`
-  const px = size === 'sm' ? 'w-2 h-2' : 'w-2.5 h-2.5'
+  const reasonText = reasons.length > 0 ? reasons.join(', ') : 'No additional details'
+  const tooltipText = `${labels[level]}: ${reasonText}`
+  const Icon = level === 'safe' ? ShieldCheck : AlertTriangle
+  const iconSize = size === 'sm' ? 'w-3 h-3' : 'w-3.5 h-3.5'
 
   return (
     <Tooltip text={tooltipText}>
       <span
-        className={`inline-block rounded-full shadow-sm ${px} ${dotColors[level]}`}
+        className={`safety-indicator ${levelClasses[level]}`}
         aria-label={tooltipText}
-      />
+        tabIndex={0}
+      >
+        <Icon className={iconSize} aria-hidden="true" />
+        <span>{labels[level]}</span>
+      </span>
     </Tooltip>
   )
 }

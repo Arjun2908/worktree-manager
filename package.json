@@ -1,15 +1,33 @@
 {
   "name": "worktree-manager",
   "version": "1.0.0",
-  "description": "A beautiful GUI for managing Git worktrees",
+  "description": "A native macOS app for understanding and cleaning up Git worktrees",
   "main": "./out/main/index.js",
+  "engines": {
+    "node": ">=22.23.2"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck:main": "tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile .cache/tsconfig.node.tsbuildinfo",
+    "typecheck:renderer": "tsc --noEmit -p tsconfig.web.json --tsBuildInfoFile .cache/tsconfig.web.tsbuildinfo",
+    "typecheck": "npm run typecheck:main && npm run typecheck:renderer",
+    "security:audit": "npm audit --omit=dev --audit-level=low && npm audit --audit-level=moderate",
+    "verify": "npm run security:audit && npm run test && npm run typecheck && npm run build",
     "preview": "electron-vite preview",
     "start": "electron .",
-    "dist": "electron-vite build && electron-builder --mac",
-    "dist:unsigned": "electron-vite build && electron-builder --mac --config.mac.identity=null"
+    "release:clean": "node scripts/clean-release.mjs",
+    "dist": "npm run dist:release",
+    "dist:release": "node scripts/assert-release-environment.mjs && bash scripts/validate-notary-credentials.sh && npm run release:clean && npm run build && electron-builder --mac --universal --publish never && bash scripts/notarize-dmg.sh release && npm run release:metadata && npm run package:verify:release && npm run release:checksums",
+    "dist:verify": "npm run release:clean && npm run build && electron-builder --mac --universal --publish never --config.forceCodeSigning=false --config.mac.identity=- --config.mac.hardenedRuntime=false --config.mac.notarize=false && npm run release:metadata && npm run package:verify:adhoc",
+    "dist:unsigned": "npm run release:clean && npm run build && electron-builder --mac --universal --publish never --config.forceCodeSigning=false --config.mac.identity=null --config.mac.hardenedRuntime=false --config.mac.notarize=false",
+    "package:verify:adhoc": "bash scripts/verify-macos-artifacts.sh --adhoc release",
+    "package:verify:release": "bash scripts/verify-macos-artifacts.sh --release release",
+    "release:verify-version": "node scripts/verify-release-version.mjs",
+    "release:metadata": "node scripts/normalize-update-metadata.mjs release",
+    "release:checksums": "node scripts/generate-checksums.mjs release"
   },
   "keywords": [],
   "author": "Arjun Gupta",
@@ -17,6 +35,10 @@
   "build": {
     "appId": "com.arjungupta.worktree-manager",
     "productName": "Worktree Manager",
+    "asar": true,
+    "forceCodeSigning": true,
+    "generateUpdatesFilesForAllChannels": true,
+    "afterPack": "scripts/apply-electron-fuses.cjs",
     "directories": {
       "output": "release"
     },
@@ -28,14 +50,19 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["universal"]
+          "arch": [
+            "universal"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["universal"]
+          "arch": [
+            "universal"
+          ]
         }
       ],
-      "icon": "build/icon.icns",
+      "icon": "build/icon.png",
+      "artifactName": "Worktree-Manager-${version}-${arch}.${ext}",
       "category": "public.app-category.developer-tools",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
@@ -60,33 +87,48 @@
         "width": 540,
         "height": 380
       }
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Arjun2908",
+        "repo": "worktree-manager",
+        "releaseType": "release"
+      }
+    ]
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.95.2",
-    "clsx": "^2.1.1",
-    "date-fns": "^4.1.0",
-    "framer-motion": "^12.38.0",
-    "lucide-react": "^1.7.0",
-    "pretty-bytes": "^7.1.0",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "tailwind-merge": "^3.5.0",
-    "zustand": "^5.0.12"
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
-    "@electron/notarize": "^2.5.0",
+    "@electron/fuses": "^2.1.3",
+    "@electron/notarize": "^3.1.1",
+    "@tanstack/react-query": "^5.95.2",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.27",
-    "electron": "^35.7.5",
-    "electron-builder": "^26.8.1",
+    "builder-util": "^26.15.3",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
-    "postcss": "^8.5.8",
+    "lucide-react": "^1.7.0",
+    "postcss": "^8.5.26",
+    "pretty-bytes": "^7.1.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "tailwind-merge": "^3.5.0",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.9.3",
-    "vite": "^7.3.1"
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10",
+    "yaml": "^2.9.0",
+    "zustand": "^5.0.12"
+  },
+  "overrides": {
+    "js-yaml": "^4.2.1"
   }
 }

@@ -1,7 +1,34 @@
 import { execFile } from 'child_process'
+import { realpath } from 'fs/promises'
+import { resolve } from 'path'
 import { promisify } from 'util'
 
 const execFileAsync = promisify(execFile)
+
+export async function canonicalizePath(path: string): Promise<string> {
+  try {
+    return await realpath(path)
+  } catch {
+    return resolve(path)
+  }
+}
+
+/**
+ * Return the canonical Git common directory for a checkout. Linked worktrees
+ * all resolve to the same common directory, which makes it a stable repo key.
+ */
+export async function getGitCommonDir(repoPath: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      { cwd: repoPath, timeout: 5000 }
+    )
+    return canonicalizePath(stdout.trim())
+  } catch {
+    return null
+  }
+}
 
 export interface ParsedWorktree {
   path: string
@@ -188,7 +215,7 @@ export async function findPRsForBranches(
 /**
  * Resolve the default branch name (main, master, etc.)
  */
-async function getDefaultBranch(repoPath: string): Promise<string> {
+export async function getDefaultBranch(repoPath: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
       cwd: repoPath, timeout: 3000
@@ -212,7 +239,8 @@ async function getDefaultBranch(repoPath: string): Promise<string> {
 export async function getWorkSummary(
   repoPath: string,
   worktreePath: string,
-  branch: string | null
+  branch: string | null,
+  resolvedDefaultBranch?: string
 ): Promise<string> {
   try {
     if (!branch) {
@@ -224,7 +252,7 @@ export async function getWorkSummary(
       return lines.map((l) => l.replace(/^[a-f0-9]+ /, '')).slice(0, 2).join(' · ')
     }
 
-    const defaultBranch = await getDefaultBranch(repoPath)
+    const defaultBranch = resolvedDefaultBranch ?? await getDefaultBranch(repoPath)
     const { stdout } = await execFileAsync(
       'git', ['log', '--oneline', `-5`, `${defaultBranch}..${branch}`],
       { cwd: repoPath, timeout: 3000 }
@@ -246,34 +274,35 @@ export interface SafetyStatus {
 
 /**
  * Determine how safe it is to delete a worktree.
- * Green (safe): merged OR (clean AND pushed)
- * Yellow (caution): not merged but pushed to remote
- * Red (danger): uncommitted changes OR local-only unpushed branch
+ * Safe: merged and clean, or clean with the full tip reachable upstream.
+ * Caution: recoverable commits with local changes, or a clean detached HEAD.
+ * Danger: unpushed/unmerged work, or local changes on a detached HEAD.
  */
 export async function getSafetyStatus(
   repoPath: string,
   worktreePath: string,
-  branch: string | null
+  branch: string | null,
+  resolvedDefaultBranch?: string
 ): Promise<SafetyStatus> {
-  if (!branch) {
-    return { level: 'caution', reasons: ['detached HEAD — cannot determine merge status'] }
-  }
-
   const reasons: string[] = []
   let merged = false
   let clean = false
   let pushed = false
 
   // 1. Check if merged into default branch
-  try {
-    const defaultBranch = await getDefaultBranch(repoPath)
-    await execFileAsync('git', ['merge-base', '--is-ancestor', branch, defaultBranch], {
-      cwd: repoPath, timeout: 3000
-    })
-    merged = true
-    reasons.push('merged into ' + defaultBranch)
-  } catch {
-    reasons.push('not merged')
+  if (!branch) {
+    reasons.push('detached HEAD — cannot determine merge status')
+  } else {
+    try {
+      const defaultBranch = resolvedDefaultBranch ?? await getDefaultBranch(repoPath)
+      await execFileAsync('git', ['merge-base', '--is-ancestor', branch, defaultBranch], {
+        cwd: repoPath, timeout: 3000
+      })
+      merged = true
+      reasons.push('merged into ' + defaultBranch)
+    } catch {
+      reasons.push('not merged')
+    }
   }
 
   // 2. Check if working tree is clean
@@ -292,15 +321,31 @@ export async function getSafetyStatus(
     reasons.push('could not check working tree')
   }
 
-  // 3. Check if pushed to remote
+  if (!branch) {
+    return { level: clean ? 'caution' : 'danger', reasons }
+  }
+
+  // 3. Check that the complete local branch tip is reachable from its upstream.
+  // Merely checking that origin/<branch> exists is unsafe: the local branch may
+  // contain additional commits which would be lost on deletion.
+  let upstream = ''
   try {
-    await execFileAsync('git', ['rev-parse', '--verify', `origin/${branch}`], {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['for-each-ref', '--format=%(upstream:short)', `refs/heads/${branch}`],
+      { cwd: repoPath, timeout: 3000 }
+    )
+    upstream = stdout.trim()
+    if (!upstream) {
+      throw new Error('branch has no upstream')
+    }
+    await execFileAsync('git', ['merge-base', '--is-ancestor', branch, upstream], {
       cwd: repoPath, timeout: 3000
     })
     pushed = true
-    reasons.push('pushed to remote')
+    reasons.push('pushed to ' + upstream)
   } catch {
-    reasons.push('local only')
+    reasons.push(upstream ? 'unpushed commits' : 'no upstream')
   }
 
   // Determine level
@@ -322,10 +367,11 @@ export async function getSafetyStatus(
  */
 export async function getBranchDivergence(
   repoPath: string,
-  branch: string
+  branch: string,
+  resolvedDefaultBranch?: string
 ): Promise<{ ahead: number; behind: number }> {
   try {
-    const defaultBranch = await getDefaultBranch(repoPath)
+    const defaultBranch = resolvedDefaultBranch ?? await getDefaultBranch(repoPath)
     const { stdout } = await execFileAsync(
       'git', ['rev-list', '--left-right', '--count', `${defaultBranch}...${branch}`],
       { cwd: repoPath, timeout: 3000 }
@@ -340,39 +386,42 @@ export async function getBranchDivergence(
 // ─── Stash operations ───────────────────────────────────────────────
 
 export interface StashEntry {
+  oid: string
   index: number
   message: string
   date: string
   branch: string
 }
 
+export interface StashDropResult {
+  oid: string
+  success: boolean
+  error?: string
+}
+
 /**
  * List all stashes in a repo.
  */
 export async function listStashes(repoPath: string): Promise<StashEntry[]> {
-  try {
-    const { stdout } = await execFileAsync(
-      'git', ['stash', 'list', '--format=%gd|||%s|||%ci'],
-      { cwd: repoPath, timeout: 10000 }
-    )
-    if (!stdout.trim()) return []
+  const { stdout } = await execFileAsync(
+    'git', ['stash', 'list', '--format=%H%x00%gd%x00%s%x00%cI'],
+    { cwd: repoPath, timeout: 10000 }
+  )
+  if (!stdout.trim()) return []
 
-    return stdout.trim().split('\n').map((line) => {
-      const [ref, message, date] = line.split('|||')
-      const indexMatch = ref?.match(/stash@\{(\d+)\}/)
-      const index = indexMatch ? parseInt(indexMatch[1], 10) : 0
-      // Extract branch from message like "WIP on branch-name: abc123 message"
-      const branchMatch = message?.match(/^(?:WIP on|On) ([^:]+):/)
-      return {
-        index,
-        message: message || '',
-        date: date || '',
-        branch: branchMatch?.[1] || 'unknown'
-      }
-    })
-  } catch {
-    return []
-  }
+  return stdout.trim().split('\n').flatMap((line) => {
+    const [oid, ref, message, date] = line.split('\0')
+    const indexMatch = ref?.match(/stash@\{(\d+)\}/)
+    if (!oid || !indexMatch) return []
+    const branchMatch = message?.match(/^(?:WIP on|On) ([^:]+):/)
+    return [{
+      oid,
+      index: Number.parseInt(indexMatch[1], 10),
+      message: message || '',
+      date: date || '',
+      branch: branchMatch?.[1] || 'unknown'
+    }]
+  })
 }
 
 /**
@@ -391,32 +440,57 @@ export async function countStashes(repoPath: string): Promise<number> {
 }
 
 /**
- * Drop a single stash by index.
+ * Drop a single stash by stable object identity. Stash indexes are mutable, so
+ * resolve the OID against a fresh list immediately before invoking Git.
  */
-export async function dropStash(repoPath: string, index: number): Promise<void> {
-  await execFileAsync('git', ['stash', 'drop', `stash@{${index}}`], {
+export async function dropStash(repoPath: string, oid: string): Promise<void> {
+  if (!/^[0-9a-f]{40,64}$/i.test(oid)) {
+    throw new TypeError('Invalid stash OID')
+  }
+  const current = (await listStashes(repoPath)).find((stash) => stash.oid === oid)
+  if (!current) {
+    throw new Error(`Stash ${oid} no longer exists`)
+  }
+  await execFileAsync('git', ['stash', 'drop', `stash@{${current.index}}`], {
     cwd: repoPath, timeout: 5000
   })
 }
 
+export async function dropStashesByOid(
+  repoPath: string,
+  oids: readonly string[],
+  dropByOid: (repoPath: string, oid: string) => Promise<void> = dropStash
+): Promise<StashDropResult[]> {
+  const results: StashDropResult[] = []
+  for (const oid of oids) {
+    try {
+      await dropByOid(repoPath, oid)
+      results.push({ oid, success: true })
+    } catch (error: any) {
+      results.push({
+        oid,
+        success: false,
+        error: error?.message || 'Could not drop stash'
+      })
+    }
+  }
+  return results
+}
+
 /**
- * Drop all stashes older than a given date. Returns count dropped.
- * Drops from highest index to lowest to avoid index shifting.
+ * Drop all stashes older than a given date. Every original eligible stash gets
+ * an outcome; each iteration resolves its current index by OID so prior drops
+ * or external insertions cannot shift the requested identity.
  */
-export async function dropStashesBefore(repoPath: string, beforeDate: string): Promise<number> {
+export async function dropStashesBefore(
+  repoPath: string,
+  beforeDate: string
+): Promise<StashDropResult[]> {
   const stashes = await listStashes(repoPath)
   const cutoff = new Date(beforeDate).getTime()
-  const toDrop = stashes.filter((s) => new Date(s.date).getTime() < cutoff)
-
-  // Sort by index descending so drops don't shift indexes
-  toDrop.sort((a, b) => b.index - a.index)
-
-  let dropped = 0
-  for (const s of toDrop) {
-    try {
-      await dropStash(repoPath, s.index)
-      dropped++
-    } catch { /* skip failures */ }
+  if (!Number.isFinite(cutoff)) {
+    throw new TypeError('Invalid stash cutoff date')
   }
-  return dropped
+  const toDrop = stashes.filter((stash) => new Date(stash.date).getTime() < cutoff)
+  return dropStashesByOid(repoPath, toDrop.map((stash) => stash.oid))
 }
