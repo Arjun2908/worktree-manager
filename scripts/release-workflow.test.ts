@@ -12,6 +12,8 @@ type Workflow = {
       environment?: string
       permissions?: Record<string, string>
       steps?: Array<{
+        name?: string
+        run?: string
         uses?: string
         with?: Record<string, string>
       }>
@@ -55,6 +57,30 @@ describe('release workflow trust contract', () => {
       'id-token': 'write',
       attestations: 'write'
     })
+  })
+
+  it('keeps immutable-release verification compatible with the built-in token', async () => {
+    const { source, workflow } = await loadWorkflow('release.yml')
+    const publish = workflow.jobs['release-macos'].steps?.find(
+      (step) => step.name === 'Publish only after every verification gate passes'
+    )?.run
+
+    // Repository settings require Administration permission, which GITHUB_TOKEN cannot receive.
+    // The workflow instead proves that the published release itself became immutable.
+    expect(source).not.toContain('/immutable-releases')
+    expect(publish).toBeDefined()
+
+    const publishRelease = publish?.indexOf('gh release edit "$RELEASE_TAG" --draft=false --latest')
+    const requireImmutable = publish?.indexOf(
+      '"$(gh release view "$RELEASE_TAG" --json isImmutable --jq .isImmutable 2>/dev/null || true)" == "true"'
+    )
+    const verifyIntegrity = publish?.indexOf(
+      'gh release verify "$RELEASE_TAG" -R "$GITHUB_REPOSITORY"'
+    )
+
+    expect(publishRelease).toBeGreaterThanOrEqual(0)
+    expect(requireImmutable).toBeGreaterThan(publishRelease ?? -1)
+    expect(verifyIntegrity).toBeGreaterThan(requireImmutable ?? -1)
   })
 
   it('keeps release tags compatible with the updater and version verifier', async () => {

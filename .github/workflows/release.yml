@@ -68,12 +68,11 @@ jobs:
         with:
           node-version: 22.23.2
           cache: npm
-      - name: Require an existing draft release
+      - name: Validate the draft release and tagged source
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release verify --help >/dev/null
-          test "$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' "repos/$GITHUB_REPOSITORY/immutable-releases" --jq .enabled)" = "true"
           git fetch origin main --no-tags
           test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = "true"
           gh release view "$RELEASE_TAG" --json isImmutable >/dev/null
