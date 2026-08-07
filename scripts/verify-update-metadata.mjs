@@ -20,6 +20,12 @@ const fileName = basename(decodeURIComponent(file.url))
 if (!fileName.endsWith('.zip')) {
   throw new Error(`Update metadata must reference a ZIP, received ${fileName}`)
 }
+const expectedFileName = `Worktree-Manager-${expectedVersion}-universal.zip`
+if (fileName !== expectedFileName) {
+  throw new Error(
+    `Update metadata archive ${fileName} does not match package version ${expectedVersion}`
+  )
+}
 
 const artifactPath = join(releaseDir, fileName)
 const artifact = await readFile(artifactPath)

@@ -56,4 +56,15 @@ describe('release workflow trust contract', () => {
       attestations: 'write'
     })
   })
+
+  it('keeps release tags compatible with the updater and version verifier', async () => {
+    const config = JSON.parse(await readFile('release-please-config.json', 'utf8'))
+
+    expect(config).toMatchObject({
+      'include-v-in-tag': true,
+      'include-component-in-tag': false,
+      'force-tag-creation': true,
+      draft: true
+    })
+  })
 })
