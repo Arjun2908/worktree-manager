@@ -44,7 +44,7 @@ The updater ZIP, its block map, and `latest-mac.yml` are published together. Ins
 
 ## One-time repository setup
 
-Create a GitHub environment named `release`. Requiring a reviewer for that environment is recommended so certificate access and public publication have a human approval boundary.
+Create a GitHub environment named `release` and require a maintainer reviewer. This is a mandatory human boundary for certificate access and public publication, not an optional hardening step.
 
 Add the signing and notarization credentials to the `release` environment:
 
@@ -75,6 +75,8 @@ Before enabling releases, protect `main` and require these checks:
 
 Enable immutable GitHub Releases **before** publishing the first workflow-produced release. Drafts remain editable while the workflow attaches and verifies assets; immutability starts at publication and protects that first trusted release and every later one. Legacy `v1.0.0` remains outside this contract.
 
+At every protected-environment approval, the reviewer must confirm that immutable GitHub Releases remain enabled. GitHub's built-in workflow token intentionally cannot read repository Administration settings, so the release job does not request a broader long-lived credential. Immediately after publication it requires both the release's `isImmutable` state and GitHub's release-integrity verification to succeed; the daily health workflow repeats those checks from a clean runner.
+
 Do not claim the pipeline is production-active until the environment, all five Apple secrets, the Actions pull-request setting, branch protection, and the first workflow-produced release exist. A source-only installation has a fail-closed release workflow, but it cannot sign, notarize, or publish without this repository configuration. The daily health workflow is expected to stay red until the first verified release supersedes legacy `v1.0.0`.
 
 ## Creating a release
@@ -84,7 +86,7 @@ Use Conventional Commit subjects. Release Please maps `fix:` to a patch, `feat:`
 1. Merge normal changes through a green pull request.
 2. On the automated `chore(main): release …` PR, select **Approve workflows to run** and wait for both required checks.
 3. Review and merge that release PR when ready to ship.
-4. Approve the `release` environment, if required.
+4. Confirm immutable GitHub Releases remain enabled, then approve the protected `release` environment.
 5. Wait for `Release / Sign, notarize, verify, and publish macOS` to finish.
 6. Download the DMG from the GitHub release and optionally verify its checksum or attestation.
 
