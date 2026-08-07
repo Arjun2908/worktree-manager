@@ -9,8 +9,9 @@ if [[ ! -d "$release_dir" ]]; then
   exit 1
 fi
 
-if [[ -z "${CSC_NAME:-}" || "$CSC_NAME" != "Developer ID Application:"*"($expected_team_id)" ]]; then
-  echo "CSC_NAME must name a Developer ID Application certificate for team $expected_team_id" >&2
+signing_identity="${RELEASE_SIGNING_IDENTITY:-}"
+if [[ -z "${CSC_NAME:-}" || "$signing_identity" != "Developer ID Application: $CSC_NAME" || "$signing_identity" != *"($expected_team_id)" ]]; then
+  echo "Signing identity must name a Developer ID Application certificate for team $expected_team_id" >&2
   exit 1
 fi
 
@@ -35,8 +36,8 @@ else
   exit 1
 fi
 
-echo "Signing final disk image with $CSC_NAME"
-codesign --force --timestamp --sign "$CSC_NAME" "$dmg_path"
+echo "Signing final disk image with $signing_identity"
+codesign --force --timestamp --sign "$signing_identity" "$dmg_path"
 codesign --verify --strict --verbose=2 "$dmg_path"
 
 notary_result="$(mktemp -t worktree-manager-notary)"
